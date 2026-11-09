@@ -108,6 +108,7 @@ internal static class Ui
         ["Updates"] = ("Обновления", "Updates"),
         ["AutoCheckUpdates"] = ("Автоматически проверять обновления", "Automatically check for updates"),
         ["CheckUpdates"] = ("Проверить обновления", "Check for updates"),
+        ["RollbackUpdate"] = ("Откатиться к предыдущей версии", "Roll back to the previous version"),
         ["AboutAuthor"] = ("Автор — Tor-del", "Author — Tor-del"),
         ["CodexCredit"] = ("Разработано при поддержке OpenAI Codex.", "Developed with support from OpenAI Codex."),
     };
@@ -130,6 +131,10 @@ internal static class Ui
         ["В релизе нет установщика с проверяемой контрольной суммой."] = "The release does not contain an installer with a verifiable checksum.",
         ["Не удалось проверить загруженный установщик."] = "Could not verify the downloaded installer.",
         ["Не удалось запустить установщик."] = "Could not start the installer.",
+        ["Откат APEX Chatd"] = "Roll back APEX Chatd",
+        ["Вернуться к версии {0}? После установки приложение перезапустится."] = "Return to version {0}? The app will restart after installation.",
+        ["Предыдущая версия больше недоступна на GitHub."] = "The previous version is no longer available on GitHub.",
+        ["Не удалось выполнить откат: {0}"] = "Could not roll back: {0}",
         ["APEX Chatd уже работает. Открой его через значок в трее."] = "APEX Chatd is already running. Open it from the notification area.",
         ["Зритель"] = "Viewer",
         ["Привет! Так будет выглядеть сообщение чата."] = "Hello! This is how a chat message will look.",

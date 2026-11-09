@@ -9,7 +9,8 @@ namespace TwitchChatAgent;
 internal sealed class GitHubUpdater(HttpClient? client = null)
 {
     private const string Repository = "https://github.com/Tor-del/APEX-ChatD";
-    private const string LatestRelease = "https://api.github.com/repos/Tor-del/APEX-ChatD/releases/latest";
+    private const string ReleasesApi = "https://api.github.com/repos/Tor-del/APEX-ChatD/releases";
+    private static readonly Version FirstAutomaticInstaller = new(1, 18, 0, 0);
     private const long MaxInstallerSize = 512L * 1024 * 1024;
     private static readonly HttpClient SharedClient = CreateClient();
     private readonly HttpClient http = client ?? SharedClient;
@@ -24,9 +25,15 @@ internal sealed class GitHubUpdater(HttpClient? client = null)
         return client;
     }
 
-    public async Task<Release?> CheckAsync(Version current, CancellationToken ct)
+    public Task<Release?> CheckAsync(Version current, CancellationToken ct) =>
+        ReadReleaseAsync("latest", version => version > current, ct);
+
+    public Task<Release?> FindRollbackAsync(Version target, CancellationToken ct) =>
+        ReadReleaseAsync($"tags/v{target.ToString(3)}", version => version == target, ct);
+
+    private async Task<Release?> ReadReleaseAsync(string endpoint, Func<Version, bool> accept, CancellationToken ct)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Get, LatestRelease);
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{ReleasesApi}/{endpoint}");
         request.Headers.Accept.ParseAdd("application/vnd.github+json");
         using var response = await http.SendAsync(request, ct);
         if (response.StatusCode == HttpStatusCode.NotFound) return null;
@@ -39,7 +46,7 @@ internal sealed class GitHubUpdater(HttpClient? client = null)
             root.GetProperty("prerelease").GetBoolean())
             return null;
         var build = new Version(version.Major, version.Minor, version.Build, 0);
-        if (build <= current) return null;
+        if (!accept(build)) return null;
 
         var name = $"APEX-Chatd-Setup-{build}-x64.exe";
         var page = new Uri($"{Repository}/releases/tag/{tag}");
@@ -55,6 +62,21 @@ internal sealed class GitHubUpdater(HttpClient? client = null)
                 return new(build, page, download, size, digest[7..]);
         }
         throw new InvalidDataException(Ui.T("В релизе нет установщика с проверяемой контрольной суммой."));
+    }
+
+    public static Version? FindPreviousVersion(string? directory)
+    {
+        if (directory is null) return null;
+        try
+        {
+            var file = Path.Combine(directory, "previous-version.txt");
+            return File.Exists(file) && Version.TryParse(File.ReadAllText(file).Trim(), out var previous) &&
+                previous.Revision == 0 && previous >= FirstAutomaticInstaller && previous < CurrentVersion ? previous : null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
     }
 
     public static string? FindInstallation()

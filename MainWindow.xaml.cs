@@ -109,6 +109,12 @@ public partial class MainWindow : Window
         AutoCheckUpdates.IsChecked = settings.AutoCheckUpdates;
         try
         {
+            RollbackButton.Visibility = GitHubUpdater.FindPreviousVersion(GitHubUpdater.FindInstallation()) is null
+                ? Visibility.Collapsed : Visibility.Visible;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
+        try
+        {
             StartWithWindows.IsChecked = StartupRegistration.IsEnabled();
         }
         catch (Exception ex)
@@ -344,6 +350,7 @@ public partial class MainWindow : Window
         if (checkingUpdates || exiting) return;
         checkingUpdates = true;
         CheckUpdatesButton.IsEnabled = false;
+        RollbackButton.IsEnabled = false;
         var installing = false;
         var ct = updateLifetime.Token;
         try
@@ -385,14 +392,7 @@ public partial class MainWindow : Window
             }
 
             installing = true;
-            UpdateStatus.Text = Ui.F("Загружаем обновление… {0}%", 0);
-            if (!IsVisible || WindowState == WindowState.Minimized)
-                tray.ShowBalloonTip(5000, Ui.T("Обновление APEX Chatd"), UpdateStatus.Text, Forms.ToolTipIcon.Info);
-            var progress = new Progress<int>(percent =>
-            {
-                if (!exiting) UpdateStatus.Text = Ui.F("Загружаем обновление… {0}%", percent);
-            });
-            var installer = await updater.DownloadAsync(release, progress, ct);
+            var installer = await DownloadInstallerAsync(release, ct);
             ct.ThrowIfCancellationRequested();
             GitHubUpdater.LaunchInstaller(installer, installDirectory);
             await ExitAsync();
@@ -407,7 +407,68 @@ public partial class MainWindow : Window
         finally
         {
             checkingUpdates = false;
-            if (!exiting) CheckUpdatesButton.IsEnabled = true;
+            if (!exiting) CheckUpdatesButton.IsEnabled = RollbackButton.IsEnabled = true;
+        }
+    }
+
+    private Task<string> DownloadInstallerAsync(GitHubUpdater.Release release, CancellationToken ct)
+    {
+        UpdateStatus.Text = Ui.F("Загружаем обновление… {0}%", 0);
+        if (!IsVisible || WindowState == WindowState.Minimized)
+            tray.ShowBalloonTip(5000, Ui.T("Обновление APEX Chatd"), UpdateStatus.Text, Forms.ToolTipIcon.Info);
+        return updater.DownloadAsync(release, new Progress<int>(percent =>
+        {
+            if (!exiting) UpdateStatus.Text = Ui.F("Загружаем обновление… {0}%", percent);
+        }), ct);
+    }
+
+    private async void RollbackClicked(object sender, RoutedEventArgs e)
+    {
+        if (checkingUpdates || exiting) return;
+        checkingUpdates = true;
+        CheckUpdatesButton.IsEnabled = RollbackButton.IsEnabled = false;
+        var ct = updateLifetime.Token;
+        try
+        {
+            var directory = GitHubUpdater.FindInstallation();
+            var previous = GitHubUpdater.FindPreviousVersion(directory);
+            if (directory is null || previous is null)
+            {
+                RollbackButton.Visibility = Visibility.Collapsed;
+                return;
+            }
+            if (MessageBox.Show(this, Ui.F("Вернуться к версии {0}? После установки приложение перезапустится.", previous.ToString(3)),
+                Ui.T("Откат APEX Chatd"), MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes)
+                return;
+
+            var release = await updater.FindRollbackAsync(previous, ct)
+                ?? throw new InvalidOperationException(Ui.T("Предыдущая версия больше недоступна на GitHub."));
+            var installer = await DownloadInstallerAsync(release, ct);
+            ct.ThrowIfCancellationRequested();
+            var ignored = settings.IgnoredUpdateVersion;
+            settings.IgnoredUpdateVersion = GitHubUpdater.CurrentVersion.ToString(3);
+            try
+            {
+                settings.Save();
+                GitHubUpdater.LaunchInstaller(installer, directory);
+            }
+            catch
+            {
+                settings.IgnoredUpdateVersion = ignored;
+                SaveSettings(UpdateStatus);
+                throw;
+            }
+            await ExitAsync();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception ex) when (!exiting)
+        {
+            UpdateStatus.Text = Ui.F("Не удалось выполнить откат: {0}", ex.Message);
+        }
+        finally
+        {
+            checkingUpdates = false;
+            if (!exiting) CheckUpdatesButton.IsEnabled = RollbackButton.IsEnabled = true;
         }
     }
 

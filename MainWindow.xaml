@@ -302,6 +302,8 @@
           <CheckBox x:Name="AutoCheckUpdates" Content="{local:Ui AutoCheckUpdates}"/>
           <Button x:Name="CheckUpdatesButton" Content="{local:Ui CheckUpdates}" Click="CheckUpdatesClicked"
                   HorizontalAlignment="Left" Margin="0,8,0,0"/>
+          <Button x:Name="RollbackButton" Content="{local:Ui RollbackUpdate}" Click="RollbackClicked"
+                  HorizontalAlignment="Left" Margin="0,8,0,0" Visibility="Collapsed"/>
           <TextBlock x:Name="UpdateStatus" Margin="0,8,0,0" TextWrapping="Wrap"/>
           <TextBlock x:Name="AppStatus" Margin="0,12,0,0" TextWrapping="Wrap"/>
           <TextBlock Text="{local:Ui AboutAuthor}" Margin="0,16,0,4" Style="{StaticResource FieldLabel}"/>

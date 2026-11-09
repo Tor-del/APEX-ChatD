@@ -10,6 +10,8 @@ Download the x64 installer from [GitHub Releases](https://github.com/Tor-del/APE
 
 Automatic update checks are enabled by default. You can also select **Check for updates** on the **Application** tab. For an Inno Setup installation, **Install** downloads and verifies the update, closes APEX Chatd, and launches the new version after installation. **Remind me later** postpones the prompt for 24 hours. **Skip this version** hides automatic reminders for that version. A manual check still shows available updates.
 
+After an upgrade from 1.18.0 or later, **Roll back to the previous version** reinstalls the exact previous GitHub release and restarts the app. Your preferences and Twitch session are retained.
+
 ## Connect Twitch
 
 1. On the **Twitch** tab, select **Connect Twitch** and authorize access in your browser with your channel account.

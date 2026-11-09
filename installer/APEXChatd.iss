@@ -64,6 +64,9 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: 
 Filename: "{app}\{#AppExe}"; Description: "{cm:Launch}"; Flags: nowait postinstall skipifsilent
 Filename: "{app}\{#AppExe}"; Parameters: "--show-settings"; WorkingDir: "{app}"; Flags: nowait skipifnotsilent; Check: IsAutomaticUpdate
 
+[UninstallDelete]
+Type: files; Name: "{app}\previous-version.txt"
+
 [Code]
 const
   RunKey = 'Software\Microsoft\Windows\CurrentVersion\Run';
@@ -71,6 +74,8 @@ const
 
 var
   StartupTaskInitialized: Boolean;
+  PriorVersion: Int64;
+  HasPriorVersion: Boolean;
 
 function OpenProcess(Access: LongWord; Inherit: Boolean; ProcessId: LongWord): THandle;
   external 'OpenProcess@kernel32.dll stdcall';
@@ -101,6 +106,33 @@ begin
     CloseHandle(Parent);
   end;
   if not Result then MsgBox(CustomMessage('UpdateWaitFailed'), mbError, MB_OK);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  HasPriorVersion := GetPackedVersion(ExpandConstant('{app}\{#AppExe}'), PriorVersion);
+  Result := '';
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  NewVersion: Int64;
+  Marker: String;
+  Comparison: Integer;
+begin
+  if CurStep <> ssPostInstall then Exit;
+  Marker := ExpandConstant('{app}\previous-version.txt');
+  if not HasPriorVersion then
+  begin
+    DeleteFile(Marker);
+    Exit;
+  end;
+  if not GetPackedVersion(ExpandConstant('{app}\{#AppExe}'), NewVersion) then Exit;
+  Comparison := ComparePackedVersion(NewVersion, PriorVersion);
+  if Comparison > 0 then
+    SaveStringToFile(Marker, VersionToStr(PriorVersion), False)
+  else if Comparison < 0 then
+    DeleteFile(Marker);
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
