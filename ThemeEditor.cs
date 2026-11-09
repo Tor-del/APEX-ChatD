@@ -17,15 +17,19 @@ internal sealed class ThemeEditor : Grid
     private readonly Slider radius;
     private readonly CheckBox hideExpiredMessages;
     private readonly Slider messageTimeout;
-    private readonly int originalDuration;
     private readonly ComboBox direction;
-    private readonly AnimationEditor entrance;
-    private readonly AnimationEditor exit;
+    private readonly CheckBox? animateMessages;
+    private static readonly string[] CurveNames = ["Линейная", "Плавное ускорение", "Плавное замедление", "Ускорение и замедление"];
+    private readonly int legacyTransitionDuration;
+    private readonly Func<ObsTransition>? entrance, departure;
+    private readonly ComboBox? enterEffect, exitEffect, moveCurve;
+    private readonly CheckBox? animateMove;
+    private readonly Slider? moveDuration;
     public event Action<ChatTheme>? Changed;
 
     public ThemeEditor(ChatTheme theme, UIElement? backgroundMedia = null)
     {
-        originalDuration = theme.AnimationDurationMs;
+        legacyTransitionDuration = theme.MessageTransitionMs;
         ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(205) });
         ColumnDefinitions.Add(new ColumnDefinition());
         font = AddFontPicker(theme.Font);
@@ -55,12 +59,29 @@ internal sealed class ThemeEditor : Grid
             SelectedIndex = theme.NewestAtTop ? 0 : 1 };
         AddRow(Ui.T("Направление чата"), direction);
         direction.SelectionChanged += (_, _) => NotifyChanged();
-        entrance = new AnimationEditor(theme.Animation, theme.EntranceProfiles, theme.AnimationDurationMs);
-        exit = new AnimationEditor(theme.ExitAnimation, theme.ExitProfiles, 280, leaving: true);
-        AddRow(Ui.T("Анимация появления"), entrance, topSpacing: 12);
-        AddRow(Ui.T("Анимация исчезновения"), exit, topSpacing: 12);
-        entrance.Changed += NotifyChanged;
-        exit.Changed += NotifyChanged;
+        if (backgroundMedia is not null)
+        {
+            var motion = theme.MessageMotion ?? new();
+            animateMessages = new CheckBox { Content = Ui.T("Анимировать сообщения"), IsChecked = theme.AnimateMessages,
+                Margin = new Thickness(0, 8, 0, 4) };
+            AddRow("", animateMessages);
+            var offset = theme.NewestAtTop ? -32 : 32;
+            enterEffect = AddMotionChoice("Появление сообщения", (int)motion.Enter, "Сдвиг", "Масштаб", "Прозрачность");
+            enterEffect.Margin = new Thickness(0, 12, 0, 4);
+            entrance = AddTransition(enterEffect, motion.Entrance ?? new(theme.MessageTransitionMs, OffsetY: offset));
+            exitEffect = AddMotionChoice("Исчезновение сообщения", (int)motion.Exit, "Сдвиг", "Масштаб", "Прозрачность");
+            exitEffect.Margin = new Thickness(0, 16, 0, 4);
+            departure = AddTransition(exitEffect, motion.Departure ?? new(theme.MessageTransitionMs, OffsetY: -offset));
+            animateMove = new CheckBox { Content = Ui.T("Плавно сдвигать оставшиеся строки"), IsChecked = motion.AnimateMove,
+                Margin = new Thickness(0, 16, 0, 4) };
+            AddRow("", animateMove);
+            moveDuration = AddSlider(Ui.T("Длительность сдвига (мс)"), motion.MoveDurationMs, 100, 2000, animateMove);
+            moveCurve = AddMotionChoice("Кривая сдвига", (int)motion.MoveCurve, CurveNames);
+            animateMove.Checked += (_, _) => NotifyChanged();
+            animateMove.Unchecked += (_, _) => NotifyChanged();
+            animateMessages.Checked += (_, _) => NotifyChanged();
+            animateMessages.Unchecked += (_, _) => NotifyChanged();
+        }
         foreach (var field in new[] { text, name, background })
             field.TextChanged += (_, _) => NotifyChanged();
     }
@@ -72,8 +93,52 @@ internal sealed class ThemeEditor : Grid
         return new ChatTheme(family, (int)size.Value, ReadColor(text).ToString(), ReadColor(name).ToString(),
             backdrop.ToString(), (int)Math.Round(backdrop.A * 100.0 / 255), (int)rows.Value,
             (int)radius.Value, twitchNameColor.IsChecked == true, hideExpiredMessages.IsChecked == true,
-            (int)messageTimeout.Value, entrance.Kind, originalDuration, direction.SelectedIndex == 0,
-            exit.Kind, entrance.Profiles, exit.Profiles);
+            (int)messageTimeout.Value, direction.SelectedIndex == 0, animateMessages?.IsChecked == true,
+            legacyTransitionDuration,
+            enterEffect is null ? null : new ObsMessageMotion((ObsMessageEffect)enterEffect.SelectedIndex,
+                (ObsMessageEffect)exitEffect!.SelectedIndex, animateMove!.IsChecked == true,
+                (int)moveDuration!.Value, (ObsMoveCurve)moveCurve!.SelectedIndex, entrance!(), departure!()));
+    }
+
+    private Func<ObsTransition> AddTransition(ComboBox effect, ObsTransition profile)
+    {
+        var duration = AddSlider(Ui.T("Длительность (мс)"), profile.DurationMs, 100, 5000);
+        var delay = AddSlider(Ui.T("Задержка (мс)"), profile.DelayMs, 0, 2000);
+        var curve = AddMotionChoice("Кривая перехода", (int)profile.Curve, CurveNames);
+        var parameters = new List<(UIElement Element, ObsMessageEffect Effect)>();
+        Slider Parameter(string label, int value, int min, int max, ObsMessageEffect kind)
+        {
+            var first = Children.Count;
+            var slider = AddSlider(Ui.T(label), value, min, max);
+            foreach (UIElement element in Children.Cast<UIElement>().Skip(first))
+                parameters.Add((element, kind));
+            return slider;
+        }
+
+        var x = Parameter("Сдвиг X (пкс)", profile.OffsetX, -500, 500, ObsMessageEffect.Slide);
+        var y = Parameter("Сдвиг Y (пкс)", profile.OffsetY, -500, 500, ObsMessageEffect.Slide);
+        var scale = Parameter("Масштаб на краю (%)", profile.Scale, 0, 200, ObsMessageEffect.Scale);
+        var originX = Parameter("Точка масштаба X (%)", profile.OriginX, 0, 100, ObsMessageEffect.Scale);
+        var originY = Parameter("Точка масштаба Y (%)", profile.OriginY, 0, 100, ObsMessageEffect.Scale);
+        var opacity = Parameter("Непрозрачность на краю (%)", profile.Opacity, 0, 100, ObsMessageEffect.Fade);
+        void UpdateVisibility()
+        {
+            foreach (var (element, kind) in parameters)
+                element.Visibility = effect.SelectedIndex == (int)kind ? Visibility.Visible : Visibility.Collapsed;
+        }
+        effect.SelectionChanged += (_, _) => UpdateVisibility();
+        UpdateVisibility();
+        return () => new((int)duration.Value, (int)delay.Value, (ObsMoveCurve)curve.SelectedIndex,
+            (int)x.Value, (int)y.Value, (int)scale.Value, (int)originX.Value, (int)originY.Value, (int)opacity.Value);
+    }
+
+    private ComboBox AddMotionChoice(string label, int selected, params string[] choices)
+    {
+        var picker = new ComboBox { ItemsSource = choices.Select(Ui.T).ToArray(),
+            SelectedIndex = Math.Clamp(selected, 0, choices.Length - 1) };
+        AddRow(Ui.T(label), picker);
+        picker.SelectionChanged += (_, _) => NotifyChanged();
+        return picker;
     }
 
     private void NotifyChanged()
@@ -177,16 +242,11 @@ internal sealed class ThemeEditor : Grid
     private static TextBox CreateField(string value, int maxLength) =>
         new() { Text = value, Margin = new Thickness(0, 2, 0, 2), MaxLength = maxLength };
 
-    private TextBlock AddRow(string label, UIElement field, double topSpacing = 0)
+    private TextBlock AddRow(string label, UIElement field)
     {
         var row = RowDefinitions.Count;
         RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var caption = new TextBlock { Text = label, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
-        if (topSpacing > 0 && field is FrameworkElement element)
-        {
-            caption.Margin = new Thickness(0, topSpacing, 0, 0);
-            element.Margin = caption.Margin;
-        }
         SetRow(caption, row);
         SetRow(field, row);
         SetColumn(field, 1);

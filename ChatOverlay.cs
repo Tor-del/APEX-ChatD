@@ -5,7 +5,6 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 
 namespace TwitchChatAgent;
 
@@ -13,7 +12,6 @@ internal sealed class ChatOverlay : Window
 {
     private readonly Border surface = new();
     private readonly ScrollViewer scroll = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Hidden };
-    private readonly Canvas departures = new() { IsHitTestVisible = false };
     private readonly Dictionary<Guid, TextBlock> active = new();
     private ChatTheme? lastTheme;
     private readonly StackPanel rows = new() { Margin = new Thickness(12) };
@@ -50,7 +48,7 @@ internal sealed class ChatOverlay : Window
         scroll.Content = rows;
         System.Windows.Automation.AutomationProperties.SetName(pin, Ui.T("Закрепить положение"));
         pin.Click += (_, _) => PinClicked?.Invoke();
-        surface.Child = new Grid { Children = { scroll, departures, pin } };
+        surface.Child = new Grid { Children = { scroll, pin } };
         surface.SizeChanged += (_, _) => ClipSurface();
         Content = surface;
         PreviewMouseLeftButtonDown += MoveWindow;
@@ -90,37 +88,13 @@ internal sealed class ChatOverlay : Window
         var styleChanged = lastTheme is null || (lastTheme.Font, lastTheme.Size, lastTheme.Text, lastTheme.Name, lastTheme.UseTwitchNameColor) !=
             (theme.Font, theme.Size, theme.Text, theme.Name, theme.UseTwitchNameColor);
         lastTheme = theme;
-        if (editing)
-            departures.Children.Clear();
 
         var keep = messages.Select(message => message.DisplayId).ToHashSet();
         foreach (var id in active.Keys.Where(id => !keep.Contains(id)).ToArray())
         {
             var row = active[id];
             active.Remove(id);
-            if (!editing && theme.ExitAnimation != MessageAnimation.None && row.ActualWidth > 0)
-            {
-                var position = row.TranslatePoint(new Point(), departures);
-                var width = row.ActualWidth;
-                rows.Children.Remove(row);
-                row.RenderTransform = Transform.Identity;
-                row.Tag = id;
-                row.Margin = new Thickness(0);
-                row.Width = width;
-                Canvas.SetLeft(row, position.X);
-                Canvas.SetTop(row, position.Y);
-                if (departures.Children.Count >= 50)
-                    departures.Children.RemoveAt(0);
-                departures.Children.Add(row);
-                Animate(row, theme.ExitAnimation, (theme.ExitProfiles ?? new()).Get(theme.ExitAnimation, 280),
-                    leaving: true, () =>
-                    {
-                        departures.Children.Remove(row);
-                        UpdateBackground();
-                    });
-            }
-            else
-                rows.Children.Remove(row);
+            rows.Children.Remove(row);
         }
 
         rows.VerticalAlignment = theme.NewestAtTop ? VerticalAlignment.Top : VerticalAlignment.Bottom;
@@ -129,12 +103,6 @@ internal sealed class ChatOverlay : Window
         foreach (var message in ordered)
         {
             var isNew = !active.TryGetValue(message.DisplayId, out var row);
-            if (isNew)
-            {
-                var departing = departures.Children.OfType<TextBlock>().FirstOrDefault(item => Equals(item.Tag, message.DisplayId));
-                if (departing is not null)
-                    departures.Children.Remove(departing);
-            }
             if (isNew || styleChanged)
             {
                 if (row is not null)
@@ -147,8 +115,6 @@ internal sealed class ChatOverlay : Window
                 rows.Children.Remove(row!);
                 rows.Children.Insert(index, row!);
             }
-            if (isNew && !editing && theme.Animation != MessageAnimation.None)
-                Animate(row!, theme.Animation, (theme.EntranceProfiles ?? new()).Get(theme.Animation, theme.AnimationDurationMs), leaving: false);
             index++;
         }
 
@@ -166,57 +132,10 @@ internal sealed class ChatOverlay : Window
         var background = ChatAppearance.BackgroundColor(theme);
         if (editing)
             background.A = Math.Max((byte)102, background.A);
-        surface.Background = !editing && theme.HideExpiredMessages && active.Count == 0 && departures.Children.Count == 0
+        surface.Background = !editing && theme.HideExpiredMessages && active.Count == 0
             ? Brushes.Transparent : new SolidColorBrush(background);
     }
 
-    private static void Animate(TextBlock row, MessageAnimation kind, MotionOptions options, bool leaving, Action? done = null)
-    {
-        IEasingFunction? easing = options.Easing switch
-        {
-            MessageEasing.EaseIn => new CubicEase { EasingMode = EasingMode.EaseIn },
-            MessageEasing.EaseOut => new CubicEase { EasingMode = EasingMode.EaseOut },
-            MessageEasing.EaseInOut => new CubicEase { EasingMode = EasingMode.EaseInOut },
-            _ => null
-        };
-        DoubleAnimation Track(double outer, double neutral, double? current = null) =>
-            new(leaving ? current ?? neutral : outer, leaving ? outer : neutral,
-                TimeSpan.FromMilliseconds(Math.Clamp(options.DurationMs, 100, 5000)))
-            {
-                BeginTime = TimeSpan.FromMilliseconds(Math.Clamp(options.DelayMs, 0, 2000)),
-                EasingFunction = easing
-            };
-
-        if (kind is MessageAnimation.Rise or MessageAnimation.Slide)
-        {
-            var old = row.RenderTransform as TranslateTransform;
-            var shift = new TranslateTransform(leaving ? old?.X ?? 0 : options.OffsetX, leaving ? old?.Y ?? 0 : options.OffsetY);
-            row.RenderTransform = shift;
-            shift.BeginAnimation(TranslateTransform.XProperty, Track(Math.Clamp(options.OffsetX, -500, 500), 0, old?.X));
-            shift.BeginAnimation(TranslateTransform.YProperty, Track(Math.Clamp(options.OffsetY, -500, 500), 0, old?.Y));
-        }
-        else if (kind == MessageAnimation.Zoom)
-        {
-            var old = row.RenderTransform as ScaleTransform;
-            var factor = Math.Clamp(options.Scale, 10, 200) / 100.0;
-            var scale = new ScaleTransform(leaving ? old?.ScaleX ?? 1 : factor, leaving ? old?.ScaleY ?? 1 : factor);
-            row.RenderTransformOrigin = new Point(Math.Clamp(options.OriginX, 0, 100) / 100.0, Math.Clamp(options.OriginY, 0, 100) / 100.0);
-            row.RenderTransform = scale;
-            scale.BeginAnimation(ScaleTransform.ScaleXProperty, Track(factor, 1, old?.ScaleX));
-            scale.BeginAnimation(ScaleTransform.ScaleYProperty, Track(factor, 1, old?.ScaleY));
-        }
-        else
-            row.RenderTransform = Transform.Identity;
-
-        var outerOpacity = Math.Clamp(options.Opacity, 0, 100) / 100.0;
-        var currentOpacity = row.Opacity;
-        row.BeginAnimation(OpacityProperty, null);
-        row.Opacity = leaving ? currentOpacity : outerOpacity;
-        var opacity = Track(outerOpacity, 1, currentOpacity);
-        if (done is not null)
-            opacity.Completed += (_, _) => done();
-        row.BeginAnimation(OpacityProperty, opacity);
-    }
     private void ClipSurface()
     {
         var size = surface.RenderSize;

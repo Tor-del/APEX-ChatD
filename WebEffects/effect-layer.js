@@ -2,8 +2,7 @@ import { CanvasTexture, Mesh, MeshBasicMaterial, NoBlending, OrthographicCamera,
 import { ChromaticAberrationEffect, EffectComposer, EffectPass, GlitchEffect, GlitchMode, RenderPass, ScanlineEffect } from "postprocessing";
 
 export class EffectLayer {
-  constructor(sources, zIndex, draw, failed) {
-    this.sources = sources;
+  constructor(zIndex, draw, failed) {
     this.draw = draw;
     this.textureCanvas = document.createElement("canvas");
     this.ctx = this.textureCanvas.getContext("2d");
@@ -33,14 +32,17 @@ export class EffectLayer {
     const key = [!!config.chromatic, !!config.glitch, config.glitch?.noiseSize, !!config.scanlines].join("/");
     if (key !== this.key) {
       this.composer?.dispose();
-      this.composer = new EffectComposer(this.renderer, { depthBuffer: false, stencilBuffer: false });
-      this.composer.addPass(new RenderPass(this.scene, this.camera));
+      this.composer = null;
       this.glitch = config.glitch ? new GlitchEffect({ dtSize: config.glitch.noiseSize }) : null;
-      if (this.glitch) this.composer.addPass(new EffectPass(this.camera, this.glitch));
       this.chromatic = config.chromatic || config.glitch ? new ChromaticAberrationEffect() : null;
       this.lines = config.scanlines ? new ScanlineEffect() : null;
       const colorEffects = [this.chromatic, this.lines].filter(Boolean);
-      if (colorEffects.length) this.composer.addPass(new EffectPass(this.camera, ...colorEffects));
+      if (this.glitch || colorEffects.length) {
+        this.composer = new EffectComposer(this.renderer, { depthBuffer: false, stencilBuffer: false });
+        this.composer.addPass(new RenderPass(this.scene, this.camera));
+        if (this.glitch) this.composer.addPass(new EffectPass(this.camera, this.glitch));
+        if (colorEffects.length) this.composer.addPass(new EffectPass(this.camera, ...colorEffects));
+      }
       this.key = key;
       this.width = undefined;
     }
@@ -70,7 +72,8 @@ export class EffectLayer {
       this.height = height;
       this.ratio = ratio;
       this.renderer.setPixelRatio(ratio);
-      this.composer.setSize(width, height);
+      if (this.composer) this.composer.setSize(width, height);
+      else this.renderer.setSize(width, height);
       this.textureCanvas.width = Math.max(1, Math.floor(width * ratio));
       this.textureCanvas.height = Math.max(1, Math.floor(height * ratio));
     }
@@ -99,15 +102,14 @@ export class EffectLayer {
       this.chromatic.offset.set(((chromatic?.offsetX ?? 0) * baseWeight + Math.cos(angle) * shift) / width,
         ((chromatic?.offsetY ?? 0) * baseWeight + Math.sin(angle) * shift) / width);
     }
-    this.composer.render(delta);
-    for (const source of this.sources) source.classList.add("obs-effects-source-hidden");
+    if (this.composer) this.composer.render(delta);
+    else this.renderer.render(this.scene, this.camera);
     this.wasGlitching = glitching;
   }
 
   dispose() {
     const canvas = this.renderer.domElement;
     canvas.removeEventListener("webglcontextlost", this.contextLost);
-    for (const source of this.sources) source.classList.remove("obs-effects-source-hidden");
     canvas.remove();
     this.composer?.dispose();
     this.mesh.geometry.dispose();

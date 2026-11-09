@@ -5,13 +5,18 @@ using ScreenReader.Speech;
 
 namespace TwitchChatAgent;
 
-internal enum MessageAnimation { None, Fade, Rise, Slide, Zoom }
-
 internal sealed record ChatTheme(string Font = "Segoe UI", int Size = 20, string Text = "#FFFFFF",
     string Name = "#BFA6FF", string Background = "#171322", int Opacity = 75, int Rows = 8, int Radius = 0, bool UseTwitchNameColor = true,
-    bool HideExpiredMessages = false, int MessageTimeoutSeconds = 15, MessageAnimation Animation = MessageAnimation.None, int AnimationDurationMs = 280,
-    bool NewestAtTop = false, MessageAnimation ExitAnimation = MessageAnimation.None,
-    MotionProfiles? EntranceProfiles = null, MotionProfiles? ExitProfiles = null);
+    bool HideExpiredMessages = false, int MessageTimeoutSeconds = 15, bool NewestAtTop = false,
+    bool AnimateMessages = false, int MessageTransitionMs = 280, ObsMessageMotion? MessageMotion = null);
+
+internal enum ObsMessageEffect { Slide, Scale, Fade }
+internal enum ObsMoveCurve { Linear, EaseIn, EaseOut, EaseInOut }
+internal sealed record ObsTransition(int DurationMs = 280, int DelayMs = 0, ObsMoveCurve Curve = ObsMoveCurve.EaseInOut,
+    int OffsetX = 0, int OffsetY = 32, int Scale = 0, int OriginX = 0, int OriginY = 0, int Opacity = 0);
+internal sealed record ObsMessageMotion(ObsMessageEffect Enter = ObsMessageEffect.Slide,
+    ObsMessageEffect Exit = ObsMessageEffect.Fade, bool AnimateMove = true, int MoveDurationMs = 280,
+    ObsMoveCurve MoveCurve = ObsMoveCurve.EaseInOut, ObsTransition? Entrance = null, ObsTransition? Departure = null);
 
 internal sealed record Settings
 {

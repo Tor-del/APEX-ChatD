@@ -12,7 +12,7 @@ internal sealed class ObsEffectsEditor : StackPanel
     public ObsEffectsEditor(ObsEffectSettings settings)
     {
         Value = settings;
-        var enable = Toggle(this, "Постэффекты WebGL (three.js)", settings.Enabled, enabled =>
+        var enable = Toggle(this, "Постобработка", settings.Enabled, enabled =>
         {
             list.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
             Update(Value with { Enabled = enabled });

@@ -7,9 +7,9 @@ const seconds = (min, max) => {
 };
 const applies = (effect, target) => effect?.enabled && (effect.target === target || effect.target === 2) ? effect : null;
 
-export function createObsEffects(chat, departures, background) {
+export function createObsEffects(chat, background) {
   const layers = new Map();
-  const drawChat = chatTexture(chat, departures);
+  const chatScene = chatTexture(chat);
   let frameId = 0;
   let lastFrame = 0;
   let glitchConfig;
@@ -23,10 +23,8 @@ export function createObsEffects(chat, departures, background) {
     const layer = layers.get(0);
     if (layer) layer.dirty = true;
   }
-  for (const source of [chat, departures]) {
-    source.addEventListener("load", invalidateChat, true);
-    source.addEventListener("obs-content-changed", invalidateChat);
-  }
+  chat.addEventListener("load", invalidateChat, true);
+  chat.addEventListener("obs-content-changed", invalidateChat);
 
   function burst(now) {
     pulse = {
@@ -37,20 +35,15 @@ export function createObsEffects(chat, departures, background) {
       randomAt = pulse.until + seconds(glitchConfig.minInterval, glitchConfig.maxInterval);
   }
 
-  function setLayer(target, sources, zIndex, draw, settings) {
+  function setLayer(target, zIndex, draw, settings) {
     const config = {
       chromatic: applies(settings.chromatic, target),
       glitch: applies(settings.glitch, target),
       scanlines: applies(settings.scanlines, target)
     };
     let layer = layers.get(target);
-    if (!config.chromatic && !config.glitch && !config.scanlines) {
-      layer?.dispose();
-      layers.delete(target);
-      return;
-    }
     if (!layer) {
-      layer = new EffectLayer(sources, zIndex, draw, fail);
+      layer = new EffectLayer(zIndex, draw, fail);
       layers.set(target, layer);
     }
     layer.configure(config);
@@ -60,7 +53,8 @@ export function createObsEffects(chat, departures, background) {
     frameId = 0;
     if (disposed || layers.size === 0) return;
     const elapsed = now - lastFrame;
-    if (elapsed >= 30) {
+    const moving = chatScene.moving();
+    if (elapsed >= (moving ? 15 : 30)) {
       lastFrame = now;
       if (now >= randomAt) burst(now);
       const width = Math.max(1, window.innerWidth);
@@ -70,11 +64,8 @@ export function createObsEffects(chat, departures, background) {
       const chatLayer = layers.get(0);
       const mediaLayer = layers.get(1);
       try {
-        if (chatLayer) {
-          const moving = chat.getAnimations({ subtree: true }).length > 0 || departures.getAnimations({ subtree: true }).length > 0;
-          chatLayer.frame(width, height, ratio, now, delta, pulse, moving || chatLayer.wasMoving);
-          chatLayer.wasMoving = moving;
-        }
+        if (moving) chatScene.advance(elapsed);
+        chatLayer?.frame(width, height, ratio, now, delta, pulse, moving);
         if (mediaLayer) {
           const element = background.firstElementChild;
           const ready = (element?.videoWidth || element?.naturalWidth || 0) > 0;
@@ -93,10 +84,8 @@ export function createObsEffects(chat, departures, background) {
 
   function dispose() {
     disposed = true;
-    for (const source of [chat, departures]) {
-      source.removeEventListener("load", invalidateChat, true);
-      source.removeEventListener("obs-content-changed", invalidateChat);
-    }
+    chat.removeEventListener("load", invalidateChat, true);
+    chat.removeEventListener("obs-content-changed", invalidateChat);
     cancelAnimationFrame(frameId);
     for (const layer of layers.values()) layer.dispose();
     layers.clear();
@@ -107,9 +96,10 @@ export function createObsEffects(chat, departures, background) {
     dispose();
   }
 
-  function update(settings, newMessage) {
+  function update(effects, newMessage) {
     if (disposed) return;
     try {
+      const settings = effects?.enabled ? effects : {};
       const key = JSON.stringify(settings);
       if (settingsKey !== key) {
         const nextGlitch = settings.glitch?.enabled ? settings.glitch : null;
@@ -119,8 +109,8 @@ export function createObsEffects(chat, departures, background) {
           randomAt = glitchConfig?.trigger === 1
             ? performance.now() + seconds(glitchConfig.minInterval, glitchConfig.maxInterval) : Infinity;
         }
-        setLayer(0, [chat, departures], 2, ctx => drawChat(ctx), settings);
-        setLayer(1, [background], 0, (ctx, w, h) => drawMedia(ctx, background, w, h), settings);
+        setLayer(0, 2, chatScene.draw, settings);
+        setLayer(1, 0, (ctx, w, h) => drawMedia(ctx, background, w, h), settings);
         settingsKey = key;
       }
       if (newMessage && glitchConfig?.trigger === 0) burst(performance.now());
@@ -131,5 +121,5 @@ export function createObsEffects(chat, departures, background) {
     }
   }
 
-  return { update, dispose };
+  return { update, updateChat: chatScene.update, dispose };
 }
