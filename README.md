@@ -1,64 +1,53 @@
 # APEX Chatd
 
-Приложение в трее Windows для чтения чата своего Twitch-канала. Настройки рабочего оверлея, страницы OBS и озвучивания независимы.
+[Русская документация](README.ru.md) · [Windows x64 installer](https://github.com/Tor-del/APEX-ChatD/releases/latest)
 
-## Установка и обновление
+APEX Chatd is a Windows tray app for your Twitch chat. It can display chat in a desktop overlay, publish a local browser source for OBS, and read messages aloud.
 
-Скачай установщик Windows x64 из [GitHub Releases](https://github.com/Tor-del/APEX-ChatD/releases). При локальной сборке установщик появится в каталоге `bin/Setup`. Установщик включает .NET и предлагает запускать APEX Chatd свёрнутым при входе в Windows. Для обновления закрой приложение и запусти установщик новой версии. Сохранённые настройки и подключение Twitch хранятся отдельно от файлов установки.
+## Install and update
 
-Сборка установщика с Inno Setup 6.7:
+Download the x64 installer from [GitHub Releases](https://github.com/Tor-del/APEX-ChatD/releases). It includes the .NET runtime and offers an option to start minimized when you sign in to Windows. Your preferences and Twitch session are stored separately in `%LOCALAPPDATA%\TwitchChatAgent`.
 
-```powershell
-.\installer\build.ps1 -Compiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-```
+Automatic update checks are enabled by default. You can also select **Check for updates** on the **Application** tab. For an Inno Setup installation, **Install** downloads and verifies the update, closes APEX Chatd, and launches the new version after installation. **Remind me later** postpones the prompt for 24 hours. **Skip this version** hides automatic reminders for that version. A manual check still shows available updates.
 
-GitHub Actions собирает установщик при отправке изменений в ветку и для pull request. Тег `v<версия>`, совпадающий с `Version` в `TwitchChatAgent.csproj`, запускает сборку и публикацию установщика в GitHub Releases.
+## Connect Twitch
 
-## Запуск из исходников
+1. On the **Twitch** tab, select **Connect Twitch** and authorize access in your browser with your channel account.
+2. The app requests chat and moderation permissions. It stores the Twitch session with Windows DPAPI and restores it on startup.
 
-Понадобится .NET 10 SDK на Windows. В каталоге проекта:
+Use **Refresh Twitch permissions** if you previously connected without moderation access. When permitted, **Delete** removes the message from Twitch and from the app's chat views and speech queue.
+
+## Overlay and OBS
+
+- In **Overlay**, enable the always-on-top desktop window and use **Set overlay position** to move, resize, and pin it. You can limit visibility to times when the channel is live.
+- In **OBS**, start the local server and add `http://127.0.0.1:17891/chat` as a Browser Source on the same computer. The browser preview opens the same page with the live chat.
+- Configure font, colors, opacity, corner radius, message limit, expiration, and chat direction separately for each view. OBS also supports an image or a looping muted video as its background.
+- The OBS source uses three.js and requires WebGL 2. Add entrance, exit, and movement effects to animate the chat, or add chromatic aberration, glitch, and scanlines under **Post-processing**.
+
+## Speech and controls
+
+Choose Windows voices, Edge TTS, or an OpenAI-compatible speech endpoint. Edge TTS can randomize voices across all available languages or within the selected language and keep the same assignment for each Twitch user until the session ends or you reset the assignments.
+
+Speech settings include speed, volume, output device, audio presets, pitch, and formants. URLs are excluded from spoken messages. **Controls** lets you assign global shortcuts for pause or resume, skip, and clear queue. Use **Test message** on the Twitch tab to exercise the chat and speech pipeline without connecting a channel.
+
+## Build from source
+
+Use the .NET 10 SDK on Windows.
 
 ```powershell
 dotnet run --project TwitchChatAgent.csproj
 ```
 
-## Подключение канала
+To rebuild the bundled OBS script and create the installer with Inno Setup 6.7:
 
-1. На вкладке Twitch нажми **Подключить Twitch**. Приложение использует встроенный Client ID и запрашивает права на чтение и модерацию чата.
-2. Подтверди разрешение в браузере под аккаунтом своего канала. Имя канала появится в статусе после подключения.
+```powershell
+npm ci --prefix WebEffects
+npm run build --prefix WebEffects
+.\installer\build.ps1 -Compiler "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+```
 
-Приложение хранит сессию с шифрованием Windows DPAPI для текущего пользователя и восстанавливает её при следующем запуске. При отзыве доступа или истечении сессии подключись заново. Настройки лежат в `%LOCALAPPDATA%\TwitchChatAgent`.
+The installer is written to `bin/Setup`. GitHub Actions packages Windows builds on branch pushes and pull requests. Pushing a tag such as `v1.18.0` that matches the project version also publishes the installer to Releases.
 
-## Тема и автозапуск
+## Credits
 
-На вкладке **Приложение** можно посмотреть версию, сбросить настройки, выбрать русский или английский интерфейс и выбрать светлую, тёмную или системную тему и отдельно включить запуск вместе с Windows, запуск свёрнутым и сворачивание в трей. Крестик запрашивает подтверждение выхода. При закрытии можно запомнить подтверждение для следующих запусков. Настройки сохраняются автоматически. Смена языка перезапускает приложение и открывает окно настроек. Автозапуск добавляется для текущего пользователя Windows.
-
-## Проверка без Twitch
-
-- **Оверлей.** Включи показ поверх окон. Нажми **Настроить положение**, перетащи само окно или потяни за нижний правый угол, затем нажми значок закрепления на оверлее или **Завершить настройку**. Положение сохраняется автоматически. Опция **Отображать оверлей только если идёт трансляция** привязывает его показ к статусу канала.
-- **OBS.** Включи локальный сервер. В OBS на этом же ПК добавь источник **Браузер** с URL `http://127.0.0.1:17891/chat`.
-- **Оформление.** Оверлей и OBS имеют отдельные списки установленных шрифтов и настройки цвета. Палитра поддерживает альфа-канал и форматы #RRGGBB и #AARRGGBB. У каждого представления свой лимит видимых сообщений от 1 до 50 и тайм-аут от 1 до 300 секунд. В обоих разделах можно выбрать направление ленты. В OBS можно выбрать локальное изображение или видео для фона. Видео повторяется без звука. При включённом цвете ника из Twitch заданный в настройках цвет используется для сообщений без цвета от Twitch. Образец виден на самом оверлее в режиме настройки положения. На вкладке OBS нажми **Предпросмотр в браузере**, чтобы открыть тот же URL с актуальным чатом, который используется в OBS.
-- **Озвучивание.** Включи озвучку, выбери голос Windows или язык и голос Edge TTS. Скорость и громкость регулируются ползунками. Можно выбрать устройство вывода Windows или использовать системное по умолчанию. Edge TTS может выбирать случайный голос для каждого сообщения, в том числе только из выбранного языка. При включённых бесконечных повторах сообщение удерживает очередь до успешного озвучивания или пропуска. Edge TTS передаёт текст в онлайн-сервис Microsoft.
-- Нажми **Тестовое сообщение**. Оно пройдёт по тому же пути, что и сообщение Twitch, и появится во всех включённых модулях. Пауза сохраняет очередь в памяти. Пропуск отменяет текущее сообщение, а очистка удаляет ожидающие.
-
-Кнопка **Очистить отображаемые сообщения** очищает список в приложении, оверлей и страницу OBS. Очередь озвучивания можно очистить отдельно.
-
-## Управление очередью
-
-Во вкладке **Управление** можно записать глобальные сочетания для паузы и продолжения, пропуска и очистки очереди. Щёлкни по полю и нажми клавиши либо среднюю или боковую кнопку мыши. Backspace и Delete снимают назначение.
-
-## Модерация
-
-1. Если ранее подключался без модерации, нажми **Обновить права Twitch** и подтверди разрешения в браузере.
-2. Кнопка **Удалить** находится рядом с сообщениями на вкладке **Twitch**.
-3. **Удалить** снимает конкретное сообщение. Причина недоступности действия указана в подсказке серой кнопки. После успешного запроса приложение убирает соответствующие сообщения из локальных лент и очереди озвучивания.
-
-## Заимствованные компоненты
-
-Ресурсы оформления и библиотека Edge TTS взяты из приложенного проекта LazySkald. Исходники и уведомления о лицензиях находятся в [Vendor](Vendor).
-
-### Постэффекты OBS
-
-В настройках оформления OBS можно включить **Анимировать сообщения**. Для появления, исчезновения и движения оставшихся строк можно комбинировать сдвиг, масштаб и прозрачность. В движении сдвиг плавно меняет позицию строки, а масштаб и прозрачность достигают заданных значений в середине перехода и возвращаются к исходным. Переходы работают независимо от постобработки.
-
-Страница OBS использует three.js и требует WebGL 2. Вкладка OBS позволяет включить **Постобработку** и настроить хроматическую аберрацию, глич и сканлинии для чата, фона или обоих слоёв. Для пересборки локального браузерного пакета выполни `npm ci --prefix WebEffects` и `npm run build --prefix WebEffects`.
+Created by [Tor-del](https://github.com/Tor-del) with support from OpenAI Codex. The [Vendor](Vendor) directory contains the third-party notices and source for components adapted from LazySkald.

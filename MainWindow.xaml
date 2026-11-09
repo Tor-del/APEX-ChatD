@@ -279,6 +279,7 @@
         </StackPanel>
       </TabItem>
       <TabItem Header="{local:Ui Application}" Tag="&#xE713;">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="28,24">
           <TextBlock Text="{local:Ui StartupAndAppearance}" FontSize="19" FontWeight="SemiBold" Margin="0,0,0,16"/>
           <CheckBox x:Name="StartWithWindows" Content="{local:Ui StartWithWindows}"/>
@@ -297,8 +298,16 @@
           </ComboBox>
           <Button Content="{local:Ui ResetAllSettings}" Click="ResetSettingsClicked" HorizontalAlignment="Left" Margin="0,16,0,0"/>
           <TextBlock x:Name="VersionLabel" Margin="0,12,0,0" Foreground="{DynamicResource FluentSecondary}"/>
+          <TextBlock Text="{local:Ui Updates}" Margin="0,16,0,8" Style="{StaticResource FieldLabel}"/>
+          <CheckBox x:Name="AutoCheckUpdates" Content="{local:Ui AutoCheckUpdates}"/>
+          <Button x:Name="CheckUpdatesButton" Content="{local:Ui CheckUpdates}" Click="CheckUpdatesClicked"
+                  HorizontalAlignment="Left" Margin="0,8,0,0"/>
+          <TextBlock x:Name="UpdateStatus" Margin="0,8,0,0" TextWrapping="Wrap"/>
           <TextBlock x:Name="AppStatus" Margin="0,12,0,0" TextWrapping="Wrap"/>
+          <TextBlock Text="{local:Ui AboutAuthor}" Margin="0,16,0,4" Style="{StaticResource FieldLabel}"/>
+          <TextBlock Text="{local:Ui CodexCredit}" TextWrapping="Wrap"/>
         </StackPanel>
+        </ScrollViewer>
       </TabItem>
     </TabControl>
   </DockPanel>

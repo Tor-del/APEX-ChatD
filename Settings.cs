@@ -34,6 +34,10 @@ internal sealed record Settings
     public bool StartMinimized { get; set; }
     public bool MinimizeToTray { get; set; }
     public bool SkipExitConfirmation { get; set; }
+    public bool AutoCheckUpdates { get; set; } = true;
+    public string? IgnoredUpdateVersion { get; set; }
+    public string? DeferredUpdateVersion { get; set; }
+    public DateTimeOffset? UpdateReminderAfter { get; set; }
     public bool OverlayLiveOnly { get; set; }
     public bool Overlay { get; set; }
     public bool Obs { get; set; }

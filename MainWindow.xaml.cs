@@ -40,6 +40,10 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer overlayExpiryTimer = new();
     private readonly DispatcherTimer placementTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private readonly DispatcherTimer liveTimer = new() { Interval = TimeSpan.FromSeconds(20) };
+    private readonly DispatcherTimer updateTimer = new();
+    private readonly CancellationTokenSource updateLifetime = new();
+    private readonly GitHubUpdater updater = new();
+    private bool checkingUpdates;
 
     private bool closePromptOpen;
     private bool populatingEdgeVoices;
@@ -102,6 +106,7 @@ public partial class MainWindow : Window
         LanguageChoice.SelectedIndex = Ui.Language == "en" ? 1 : 0;
         var version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "";
         VersionLabel.Text = Ui.F("Версия {0}", version);
+        AutoCheckUpdates.IsChecked = settings.AutoCheckUpdates;
         try
         {
             StartWithWindows.IsChecked = StartupRegistration.IsEnabled();
@@ -254,12 +259,23 @@ public partial class MainWindow : Window
                 UpdateStartupRegistration();
         });
         OnToggle(MinimizeToTray, UpdateAppSettings);
+        OnToggle(AutoCheckUpdates, () =>
+        {
+            settings.AutoCheckUpdates = AutoCheckUpdates.IsChecked == true;
+            SaveSettings(UpdateStatus);
+            ScheduleUpdateChecks();
+        });
         StateChanged += (_, _) => HideMinimizedWindow();
         AppThemeChoice.SelectionChanged += (_, _) => UpdateAppSettings();
         LanguageChoice.SelectionChanged += async (_, _) => await UpdateLanguageAsync();
         overlayExpiryTimer.Tick += (_, _) => RenderOverlay();
         placementTimer.Tick += (_, _) => SaveOverlayPosition();
         liveTimer.Tick += async (_, _) => await RefreshLiveAsync();
+        updateTimer.Tick += async (_, _) =>
+        {
+            updateTimer.Interval = TimeSpan.FromHours(4);
+            await CheckForUpdatesAsync(manual: false);
+        };
         UpdateOverlayStatus();
         RefreshModeration();
         UpdateShortcutFields();
@@ -295,6 +311,7 @@ public partial class MainWindow : Window
 
     internal async Task StartAsync()
     {
+        ScheduleUpdateChecks();
         if (settings.Edge)
             _ = LoadEdgeCatalogAsync();
         ApplyOverlay();
@@ -309,6 +326,88 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             TwitchStatus.Text = Ui.F("Не удалось восстановить подключение: {0}", ex.Message);
+        }
+    }
+
+    private void ScheduleUpdateChecks()
+    {
+        updateTimer.Stop();
+        if (!settings.AutoCheckUpdates || exiting) return;
+        updateTimer.Interval = TimeSpan.FromSeconds(5);
+        updateTimer.Start();
+    }
+
+    private async void CheckUpdatesClicked(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync(manual: true);
+
+    private async Task CheckForUpdatesAsync(bool manual)
+    {
+        if (checkingUpdates || exiting) return;
+        checkingUpdates = true;
+        CheckUpdatesButton.IsEnabled = false;
+        var installing = false;
+        var ct = updateLifetime.Token;
+        try
+        {
+            if (manual) UpdateStatus.Text = Ui.T("Проверяем обновления…");
+            var release = await updater.CheckAsync(GitHubUpdater.CurrentVersion, ct);
+            if (exiting || (!manual && !settings.AutoCheckUpdates)) return;
+            if (release is null)
+            {
+                UpdateStatus.Text = manual ? Ui.T("Установлена актуальная версия.") : "";
+                return;
+            }
+
+            var version = release.Version.ToString(3);
+            if (!manual && (settings.IgnoredUpdateVersion == version ||
+                settings.DeferredUpdateVersion == version && settings.UpdateReminderAfter > DateTimeOffset.UtcNow))
+                return;
+            var installDirectory = GitHubUpdater.FindInstallation();
+            var prompt = new UpdatePrompt(this, release.Version, installDirectory is not null);
+            UpdateStatus.Text = Ui.F("Доступна версия APEX Chatd {0}.", version);
+            prompt.ShowDialog();
+            if (exiting) return;
+            switch (prompt.Decision)
+            {
+                case UpdateDecision.Ignore:
+                    settings.IgnoredUpdateVersion = version;
+                    SaveSettings(UpdateStatus);
+                    return;
+                case UpdateDecision.Later:
+                    settings.DeferredUpdateVersion = version;
+                    settings.UpdateReminderAfter = DateTimeOffset.UtcNow.AddDays(1);
+                    SaveSettings(UpdateStatus);
+                    return;
+            }
+            if (installDirectory is null)
+            {
+                Process.Start(new ProcessStartInfo(release.Page.AbsoluteUri) { UseShellExecute = true });
+                return;
+            }
+
+            installing = true;
+            UpdateStatus.Text = Ui.F("Загружаем обновление… {0}%", 0);
+            if (!IsVisible || WindowState == WindowState.Minimized)
+                tray.ShowBalloonTip(5000, Ui.T("Обновление APEX Chatd"), UpdateStatus.Text, Forms.ToolTipIcon.Info);
+            var progress = new Progress<int>(percent =>
+            {
+                if (!exiting) UpdateStatus.Text = Ui.F("Загружаем обновление… {0}%", percent);
+            });
+            var installer = await updater.DownloadAsync(release, progress, ct);
+            ct.ThrowIfCancellationRequested();
+            GitHubUpdater.LaunchInstaller(installer, installDirectory);
+            await ExitAsync();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception ex) when (!exiting)
+        {
+            UpdateStatus.Text = Ui.F(installing ? "Не удалось обновить APEX Chatd: {0}" : "Не удалось проверить обновления: {0}", ex.Message);
+            if (installing)
+                MessageBox.Show(UpdateStatus.Text, Ui.T("Обновление APEX Chatd"), MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            checkingUpdates = false;
+            if (!exiting) CheckUpdatesButton.IsEnabled = true;
         }
     }
 
@@ -1154,6 +1253,8 @@ public partial class MainWindow : Window
         overlayExpiryTimer.Stop();
         voiceCatalogLifetime.Cancel();
         liveTimer.Stop();
+        updateTimer.Stop();
+        updateLifetime.Cancel();
         SaveOverlayPosition();
         twitch?.Cancel();
         speech.Configure(settings with { Speech = false });

@@ -36,6 +36,8 @@ en.AutoStart=Start APEX Chatd minimized when I sign in to Windows
 ru.AutoStart=Запускать APEX Chatd свёрнутым при входе в Windows
 en.Launch=Launch APEX Chatd
 ru.Launch=Запустить APEX Chatd
+en.UpdateWaitFailed=APEX Chatd is still closing. Close it and run the installer again.
+ru.UpdateWaitFailed=APEX Chatd ещё завершает работу. Закройте приложение и запустите установщик ещё раз.
 
 [Tasks]
 Name: "autostart"; Description: "{cm:AutoStart}"; Flags: unchecked
@@ -54,12 +56,13 @@ Source: "..\Vendor\ScreenReader.Speech\*.csproj"; DestDir: "{app}\source\ScreenR
 Name: "{userprograms}\APEX Chatd"; Filename: "{app}\{#AppExe}"; WorkingDir: "{app}"
 
 [Registry]
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "APEX Chatd"; ValueData: """{app}\{#AppExe}"" --autostart"; Tasks: autostart
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "APEX Chatd"; Flags: deletevalue; Tasks: not autostart
-Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "TwitchChatAgent"; Flags: deletevalue
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "APEX Chatd"; ValueData: """{app}\{#AppExe}"" --autostart"; Tasks: autostart; Check: not IsAutomaticUpdate
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "APEX Chatd"; Flags: deletevalue; Tasks: not autostart; Check: not IsAutomaticUpdate
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: "TwitchChatAgent"; Flags: deletevalue; Check: not IsAutomaticUpdate
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "{cm:Launch}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; Parameters: "--show-settings"; WorkingDir: "{app}"; Flags: nowait skipifnotsilent; Check: IsAutomaticUpdate
 
 [Code]
 const
@@ -68,6 +71,37 @@ const
 
 var
   StartupTaskInitialized: Boolean;
+
+function OpenProcess(Access: LongWord; Inherit: Boolean; ProcessId: LongWord): THandle;
+  external 'OpenProcess@kernel32.dll stdcall';
+function WaitForSingleObject(Handle: THandle; Milliseconds: LongWord): LongWord;
+  external 'WaitForSingleObject@kernel32.dll stdcall';
+function CloseHandle(Handle: THandle): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
+
+function IsAutomaticUpdate: Boolean;
+begin
+  Result := ExpandConstant('{param:APEXUPDATE|0}') = '1';
+end;
+
+function InitializeSetup: Boolean;
+var
+  Parent: THandle;
+  ProcessId: Integer;
+begin
+  Result := True;
+  if not IsAutomaticUpdate then Exit;
+  ProcessId := StrToIntDef(ExpandConstant('{param:APEXWAITPID|0}'), 0);
+  if ProcessId <= 0 then Exit;
+  Parent := OpenProcess($00100000, False, ProcessId);
+  if Parent = 0 then Exit;
+  try
+    Result := WaitForSingleObject(Parent, 60000) = 0;
+  finally
+    CloseHandle(Parent);
+  end;
+  if not Result then MsgBox(CustomMessage('UpdateWaitFailed'), mbError, MB_OK);
+end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
