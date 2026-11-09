@@ -10,13 +10,19 @@ internal sealed record ChatTheme(string Font = "Segoe UI", int Size = 20, string
     bool HideExpiredMessages = false, int MessageTimeoutSeconds = 15, bool NewestAtTop = false,
     bool AnimateMessages = false, int MessageTransitionMs = 280, ObsMessageMotion? MessageMotion = null);
 
-internal enum ObsMessageEffect { Slide, Scale, Fade }
+internal enum ObsMessageEffect { Slide, Scale, Fade, Particles }
+[Flags]
+internal enum ObsMessageEffects { None = 0, Slide = 1, Scale = 2, Fade = 4 }
 internal enum ObsMoveCurve { Linear, EaseIn, EaseOut, EaseInOut }
 internal sealed record ObsTransition(int DurationMs = 280, int DelayMs = 0, ObsMoveCurve Curve = ObsMoveCurve.EaseInOut,
-    int OffsetX = 0, int OffsetY = 32, int Scale = 0, int OriginX = 0, int OriginY = 0, int Opacity = 0);
+    int OffsetX = 0, int OffsetY = 32, int Scale = 0, int OriginX = 0, int OriginY = 0, int Opacity = 0,
+    ObsMessageEffects? Effects = null, ObsAnimationItem[]? Items = null, int ParticleSize = 4, int ParticleSpread = 80,
+    int ParticleLimit = 1200, int ParticleDirection = 0, int ParticleCone = 360);
+internal sealed record ObsAnimationItem(ObsMessageEffect Kind, bool Enabled, ObsTransition Options);
 internal sealed record ObsMessageMotion(ObsMessageEffect Enter = ObsMessageEffect.Slide,
     ObsMessageEffect Exit = ObsMessageEffect.Fade, bool AnimateMove = true, int MoveDurationMs = 280,
-    ObsMoveCurve MoveCurve = ObsMoveCurve.EaseInOut, ObsTransition? Entrance = null, ObsTransition? Departure = null);
+    ObsMoveCurve MoveCurve = ObsMoveCurve.EaseInOut, ObsTransition? Entrance = null, ObsTransition? Departure = null,
+    ObsTransition? Movement = null);
 
 internal sealed record Settings
 {
@@ -47,6 +53,9 @@ internal sealed record Settings
     public string AudioOutputId { get; set; } = "";
     public bool RandomEdgeVoice { get; set; }
     public bool RandomEdgeVoiceInLanguage { get; set; }
+    public bool PinRandomEdgeVoice { get; set; }
+    public int SpeechPitch { get; set; }
+    public int SpeechFormant { get; set; }
     public QueueBindings SpeechHotkeys { get; set; } = new();
     public string? EdgeLanguage { get; set; }
     public string EdgeVoice { get; set; } = "ru-RU-SvetlanaNeural";

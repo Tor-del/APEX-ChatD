@@ -151,6 +151,10 @@
               <CheckBox x:Name="RandomEdgeVoice" Content="{local:Ui RandomEdgeVoice}" Margin="0,8,0,0"/>
               <CheckBox x:Name="RandomEdgeVoiceInLanguage" Content="{local:Ui RandomEdgeVoiceInLanguage}"
                         Margin="16,6,0,0" Visibility="Collapsed"/>
+              <CheckBox x:Name="PinRandomEdgeVoice" Content="{local:Ui PinRandomEdgeVoice}"
+                        Margin="16,6,0,0" Visibility="Collapsed"/>
+              <Button x:Name="ResetPinnedVoices" Content="{local:Ui ResetPinnedVoices}" Click="ResetPinnedVoicesClicked"
+                      Margin="16,6,0,0" HorizontalAlignment="Left" Visibility="Collapsed"/>
             </StackPanel>
             <StackPanel x:Name="CompatibleTtsOptions" Visibility="Collapsed">
               <TextBlock Text="{local:Ui TtsEndpoint}" Margin="0,10,0,4"/>
@@ -209,11 +213,30 @@
                       AutomationProperties.Name="{local:Ui SpeechEffectIntensity}"/>
             </DockPanel>
             <CheckBox x:Name="SpeechRadioNoise" Content="{local:Ui SpeechRadioNoise}" Margin="0,4,0,0"/>
+            <DockPanel Margin="0,10,0,4">
+              <TextBlock DockPanel.Dock="Left" Text="{local:Ui SpeechPitch}" Width="150" VerticalAlignment="Center"/>
+              <TextBlock DockPanel.Dock="Right" Width="48" TextAlignment="Right" VerticalAlignment="Center"
+                         Text="{Binding Value, ElementName=SpeechPitch, StringFormat={}{0:+0;-0;0}}"/>
+              <Slider x:Name="SpeechPitch" Minimum="-12" Maximum="12" TickFrequency="1" IsSnapToTickEnabled="True"
+                      IsMoveToPointEnabled="True" AutomationProperties.Name="{local:Ui SpeechPitch}"/>
+            </DockPanel>
+            <DockPanel Margin="0,8,0,4">
+              <TextBlock DockPanel.Dock="Left" Text="{local:Ui SpeechFormant}" Width="150" VerticalAlignment="Center"/>
+              <TextBlock DockPanel.Dock="Right" Width="48" TextAlignment="Right" VerticalAlignment="Center"
+                         Text="{Binding Value, ElementName=SpeechFormant, StringFormat={}{0:+0;-0;0}}"/>
+              <Slider x:Name="SpeechFormant" Minimum="-6" Maximum="6" TickFrequency="1" IsSnapToTickEnabled="True"
+                      IsMoveToPointEnabled="True" AutomationProperties.Name="{local:Ui SpeechFormant}"/>
+            </DockPanel>
             <Border BorderBrush="{DynamicResource FluentPanelStroke}" BorderThickness="1" CornerRadius="8"
                     Padding="12" Margin="0,16,0,0">
               <StackPanel>
                 <TextBlock Text="{local:Ui SpeechQueue}" Style="{StaticResource FieldLabel}"/>
                 <WrapPanel>
+                  <WrapPanel.Resources>
+                    <Style TargetType="TextBlock">
+                      <Setter Property="VerticalAlignment" Value="Center"/>
+                    </Style>
+                  </WrapPanel.Resources>
                   <Button x:Name="PauseQueueButton" Click="PauseClicked" Margin="0,0,8,6">
                     <StackPanel Orientation="Horizontal">
                       <TextBlock x:Name="PauseQueueIcon" Text="&#xE769;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" Margin="0,0,6,0"/>

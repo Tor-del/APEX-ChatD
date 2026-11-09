@@ -1,4 +1,4 @@
-import { CanvasMessage, transition } from "./message-motion.js";
+import { CanvasMessage, transitions } from "./message-motion.js";
 
 const segmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
@@ -36,8 +36,7 @@ export function chatTexture(chat) {
   const cache = new WeakMap();
   const messages = new Map();
   let time = 0;
-  let moveDuration = 0;
-  let moveCurve;
+  let motion = {};
 
   function measure(row, rect) {
     const style = getComputedStyle(row);
@@ -57,15 +56,10 @@ export function chatTexture(chat) {
       images.push({ image, x: box.left - rect.left + (box.width - width) / 2,
         y: box.top - rect.top + (box.height - height) / 2, width, height });
     }
-    return { runs: entry.runs, images };
+    return { runs: entry.runs, images, entry, height: rect.height };
   }
 
-  function drawRow(ctx, content, position) {
-    if (position.opacity <= 0 || position.scale <= 0) return;
-    ctx.save();
-    ctx.globalAlpha = position.opacity;
-    ctx.translate(position.x, position.y);
-    ctx.scale(position.scale, position.scale);
+  function paintContent(ctx, content) {
     for (const run of content.runs) {
       ctx.font = run.font;
       ctx.fillStyle = run.color;
@@ -74,6 +68,81 @@ export function chatTexture(chat) {
     }
     for (const { image, x, y, width, height } of content.images)
       ctx.drawImage(image, x, y, width, height);
+  }
+
+  function fragmentTexture(ctx, content, { particleSize, particleLimit, particleDirection, particleCone }) {
+    const key = [particleSize, particleLimit, particleDirection, particleCone, content.height, ...content.images.map(({ image, x, y, width, height }) =>
+      [image.src, x, y, width, height].join(","))].join("|");
+    if (content.entry.fragments?.key === key) return content.entry.fragments.value;
+
+    let right = 0;
+    for (const run of content.runs) {
+      ctx.font = run.font;
+      const metrics = ctx.measureText(run.text);
+      right = Math.max(right, run.x + Math.max(metrics.width, metrics.actualBoundingBoxRight));
+    }
+    for (const image of content.images) right = Math.max(right, image.x + image.width);
+    const width = Math.min(4096, Math.max(1, Math.ceil(right + 2)));
+    const height = Math.min(2048, Math.max(1, Math.ceil(content.height + 2)));
+    const texture = document.createElement("canvas");
+    texture.width = width;
+    texture.height = height;
+    const surface = texture.getContext("2d", { willReadFrequently: true });
+    paintContent(surface, content);
+
+    let value = null;
+    try {
+      const pixels = surface.getImageData(0, 0, width, height).data;
+      // Bound the number of draw calls for very large text or wrapped messages.
+      let step = Math.max(particleSize, Math.ceil(Math.sqrt(width * height / particleLimit)));
+      while (Math.ceil(width / step) * Math.ceil(height / step) > particleLimit) step++;
+      const radians = Math.PI / 180;
+      const tiles = [];
+      for (let y = 0; y < height; y += step) {
+        for (let x = 0; x < width; x += step) {
+          const w = Math.min(step, width - x);
+          const h = Math.min(step, height - y);
+          let ink = false;
+          for (let dy = 0; dy < h && !ink; dy++) {
+            for (let dx = 0; dx < w; dx++) {
+              if (pixels[((y + dy) * width + x + dx) * 4 + 3] > 12) {
+                ink = true;
+                break;
+              }
+            }
+          }
+          if (!ink) continue;
+          const seed = Math.imul(x + 1, 73856093) ^ Math.imul(y + 1, 19349663);
+          const fraction = (seed >>> 0) / 0x100000000;
+          const angle = (particleDirection + (fraction - 0.5) * particleCone) * radians;
+          const speed = 0.35 + ((seed >>> 8) & 255) / 255 * 0.65;
+          tiles.push({ x, y, w, h, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed });
+        }
+      }
+      value = { texture, tiles };
+    } catch (error) {
+      if (error.name !== "SecurityError") throw error;
+    }
+    content.entry.fragments = { key, value };
+    return value;
+  }
+
+  function drawRow(ctx, content, position) {
+    if (position.opacity <= 0 || position.scale <= 0 || position.scatter >= 1) return;
+    ctx.save();
+    ctx.globalAlpha = position.opacity;
+    ctx.translate(position.x, position.y);
+    ctx.scale(position.scale, position.scale);
+    if (position.scatter > 0 && position.particles) {
+      const { particleSpread } = position.particles;
+      const fragments = fragmentTexture(ctx, content, position.particles);
+      ctx.globalAlpha *= 1 - position.scatter ** 2;
+      if (fragments) {
+        const distance = position.scatter * particleSpread;
+        for (const { x, y, w, h, vx, vy } of fragments.tiles)
+          ctx.drawImage(fragments.texture, x, y, w, h, x + vx * distance, y + vy * distance, w, h);
+      } else paintContent(ctx, content);
+    } else paintContent(ctx, content);
     ctx.restore();
   }
 
@@ -81,13 +150,15 @@ export function chatTexture(chat) {
     return { x: rect.left, y: rect.top };
   }
 
+  function moveProfile(bounds) {
+    return transitions(motion.animateMove === false ? 0 : 1, motion.movement,
+      motion.moveDurationMs ?? 280, 0, bounds, motion.moveCurve).find(effect => effect.kind === 0);
+  }
+
   function update(render, theme) {
     const now = time;
-    const motion = theme.messageMotion ?? {};
+    motion = theme.messageMotion ?? {};
     const duration = Math.max(100, Math.min(2000, theme.messageTransitionMs ?? 280));
-    moveDuration = !theme.animateMessages || motion.animateMove === false
-      ? 0 : Math.max(100, Math.min(2000, motion.moveDurationMs ?? 280));
-    moveCurve = motion.moveCurve;
     const direction = theme.newestAtTop ? 1 : -1;
 
     if (!theme.animateMessages) {
@@ -111,13 +182,13 @@ export function chatTexture(chat) {
       const existing = messages.get(id);
       before.delete(id);
       if (existing && existing.state !== "exiting") {
-        existing.moveTo(target(bounds), moveDuration, moveCurve, now);
+        existing.moveTo(target(bounds), moveProfile(bounds), now);
         continue;
       }
       const previous = existing?.position(now);
       const message = new CanvasMessage(target(bounds));
       const distance = -direction * (bounds.height + (parseFloat(getComputedStyle(row).marginTop) || 0));
-      const profile = transition(motion.enter ?? 0, motion.entrance, duration, distance, bounds);
+      const profile = transitions(1 << (motion.enter ?? 0), motion.entrance, duration, distance, bounds);
       message.enter(profile, now, existing?.state === "removed" ? null : previous);
       messages.set(id, message);
     }
@@ -126,8 +197,9 @@ export function chatTexture(chat) {
       const message = messages.get(id);
       const position = message.position(now);
       const distance = direction < 0 ? -position.y - bounds.height : window.innerHeight - position.y;
-      const profile = transition(motion.exit ?? 2, motion.departure, duration, distance, bounds);
-      message.exit(profile, now, content);
+      const profile = transitions(1 << (motion.exit ?? 2), motion.departure, duration, distance, bounds);
+      if (profile.length) message.exit(profile, now, content);
+      else messages.delete(id);
     }
 
     const exiting = [...messages].filter(([, message]) => message.state === "exiting");
@@ -152,7 +224,8 @@ export function chatTexture(chat) {
       const logical = target(bounds);
       // Layout may change between snapshots, for example after a viewport resize.
       // Retarget from the current visual position without cancelling the transition.
-      message?.moveTo(logical, moveDuration, moveCurve, now);
+      if (message && (message.target.x !== logical.x || message.target.y !== logical.y))
+        message.moveTo(logical, moveProfile(bounds), now);
       const position = message?.position(now) ?? { ...logical, opacity: 1, scale: 1 };
       rows.push({ content: measure(row, bounds), position, moving: message?.moving === true });
     }

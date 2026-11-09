@@ -1,5 +1,3 @@
-using System.Buffers;
-using NAudio.Dsp;
 using NAudio.Wave;
 
 namespace TwitchChatAgent;
@@ -8,7 +6,6 @@ internal static class SpeechFftFilter
 {
     private const int FftOrder = 13;
     private const int FftSize = 1 << FftOrder;
-    private const int Hop = FftSize / 4;
     private static readonly Dictionary<SpeechEffect, ResponseCurve> Presets = new()
     {
         [SpeechEffect.VoiceMail] = new(
@@ -42,8 +39,7 @@ internal static class SpeechFftFilter
             (20, -300), (1000, -300), (2000, 0), (22049.9997, 0), (24000, 0)
         ])
     };
-    private static readonly float[] Window = CreateWindow();
-    private static readonly float[] SynthesisWindow = CreateSynthesisWindow();
+    private static readonly SpeechSpectralProcessor Processor = new(FftOrder);
 
     public static bool Supports(SpeechEffect effect) => Presets.ContainsKey(effect);
 
@@ -53,50 +49,15 @@ internal static class SpeechFftFilter
         if (wet == 0)
             return source;
 
-        var channels = source.WaveFormat.Channels;
-        var input = new ArrayBufferWriter<float>();
-        var buffer = new float[Hop * channels];
-        while (true)
-        {
-            ct.ThrowIfCancellationRequested();
-            var read = source.Read(buffer, 0, buffer.Length);
-            if (read == 0)
-                break;
-            input.Write(buffer.AsSpan(0, read));
-        }
-
-        var frameCount = input.WrittenCount / channels;
-        var output = new float[frameCount * channels];
         var gains = CreateBinGains(source.WaveFormat.SampleRate, wet, Presets[effect]);
-        var spectrum = new Complex[FftSize];
-        var dry = input.WrittenSpan;
-
-        // Zero-pad both ends and overlap the windows to keep the original duration.
-        for (var start = Hop - FftSize; start < frameCount; start += Hop)
+        return Processor.Apply(source, spectrum =>
         {
-            ct.ThrowIfCancellationRequested();
-            var first = Math.Max(0, -start);
-            var end = Math.Min(FftSize, frameCount - start);
-            for (var channel = 0; channel < channels; channel++)
+            for (var i = 0; i < FftSize; i++)
             {
-                Array.Clear(spectrum);
-                for (var i = first; i < end; i++)
-                    spectrum[i].X = dry[(start + i) * channels + channel] * Window[i];
-
-                FastFourierTransform.FFT(true, FftOrder, spectrum);
-                for (var i = 0; i < FftSize; i++)
-                {
-                    spectrum[i].X *= gains[i];
-                    spectrum[i].Y *= gains[i];
-                }
-                FastFourierTransform.FFT(false, FftOrder, spectrum);
-
-                for (var i = first; i < end; i++)
-                    output[(start + i) * channels + channel] += spectrum[i].X * SynthesisWindow[i];
+                spectrum[i].X *= gains[i];
+                spectrum[i].Y *= gains[i];
             }
-        }
-
-        return new FilteredAudio(source.WaveFormat, output);
+        }, ct);
     }
 
     private static float[] CreateBinGains(int sampleRate, float wet, ResponseCurve curve)
@@ -161,47 +122,6 @@ internal static class SpeechFftFilter
             var remaining = 1 - t;
             return left.Db + difference * t * t * (3 - 2 * t) +
                 width * t * remaining * (remaining * tangents[segment] - t * tangents[segment + 1]);
-        }
-    }
-
-    private static float[] CreateWindow()
-    {
-        var window = new float[FftSize];
-        for (var i = 0; i < window.Length; i++)
-        {
-            var phase = Math.Tau * i / FftSize;
-            window[i] = (float)(0.42 - 0.5 * Math.Cos(phase) + 0.08 * Math.Cos(2 * phase));
-        }
-        return window;
-    }
-
-    private static float[] CreateSynthesisWindow()
-    {
-        var window = new float[FftSize];
-        for (var phase = 0; phase < Hop; phase++)
-        {
-            var sum = 0f;
-            for (var i = phase; i < FftSize; i += Hop)
-                sum += Window[i] * Window[i];
-            for (var i = phase; i < FftSize; i += Hop)
-                window[i] = Window[i] / sum;
-        }
-        return window;
-    }
-
-    private sealed class FilteredAudio(WaveFormat format, float[] samples) : ISampleProvider
-    {
-        private int position;
-        public WaveFormat WaveFormat => format;
-
-        public int Read(float[] buffer, int offset, int count)
-        {
-            var read = Math.Min(count, samples.Length - position);
-            // NAudio's playback adapter can expose a byte buffer as float samples.
-            for (var i = 0; i < read; i++)
-                buffer[offset + i] = samples[position + i];
-            position += read;
-            return read;
         }
     }
 }

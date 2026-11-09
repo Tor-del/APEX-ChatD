@@ -10,6 +10,7 @@ namespace TwitchChatAgent;
 internal sealed class SpeechQueue(Action<string> status)
 {
     private readonly Queue<ChatMessage> pending = new();
+    private readonly Dictionary<string, SpeechVoice> pinnedVoices = new(StringComparer.OrdinalIgnoreCase);
     private readonly EdgeSpeechClient edge = new();
     private static readonly HttpClient compatibleHttp = new(new SocketsHttpHandler
     {
@@ -33,13 +34,24 @@ internal sealed class SpeechQueue(Action<string> status)
 
     public void SetEdgeVoices(IReadOnlyList<SpeechVoice> voices) => edgeVoices = voices;
 
-    private SpeechVoice? ChooseEdgeVoice(Settings settings)
+    public void ResetPinnedVoices() => pinnedVoices.Clear();
+
+    private SpeechVoice? ChooseEdgeVoice(Settings settings, ChatMessage message)
     {
         var language = settings.EdgeLanguage ?? EdgeVoiceCatalog.LocaleFromVoice(settings.EdgeVoice);
+        var key = message.UserId is { Length: > 0 } id ? "id:" + id : "name:" + message.Name;
+        if (settings.PinRandomEdgeVoice && pinnedVoices.TryGetValue(key, out var pinned)
+            && (!settings.RandomEdgeVoiceInLanguage || string.Equals(pinned.Locale, language, StringComparison.OrdinalIgnoreCase)))
+            return pinned;
+
         var choices = settings.RandomEdgeVoiceInLanguage
             ? edgeVoices.Where(voice => string.Equals(voice.Locale, language, StringComparison.OrdinalIgnoreCase)).ToArray()
             : edgeVoices;
-        return choices.Count == 0 ? null : choices[Random.Shared.Next(choices.Count)];
+        if (choices.Count == 0) return null;
+        var chosen = choices[Random.Shared.Next(choices.Count)];
+        if (settings.PinRandomEdgeVoice)
+            pinnedVoices[key] = chosen;
+        return chosen;
     }
 
     public void Configure(Settings settings)
@@ -63,6 +75,8 @@ internal sealed class SpeechQueue(Action<string> status)
         var text = SpeechTextFilter.RemoveLinks(message.Text);
         if (string.IsNullOrWhiteSpace(text))
             return;
+        if (options.Edge && options.RandomEdgeVoice && options.PinRandomEdgeVoice)
+            ChooseEdgeVoice(options, message);
         pending.Enqueue(text == message.Text ? message : message with { Text = text });
         Report();
         Start();
@@ -153,7 +167,7 @@ internal sealed class SpeechQueue(Action<string> status)
             {
                 var currentOptions = options;
                 var voice = currentOptions.Edge && currentOptions.RandomEdgeVoice
-                    ? randomVoice ??= ChooseEdgeVoice(currentOptions)
+                    ? randomVoice ??= ChooseEdgeVoice(currentOptions, message)
                     : null;
                 await SpeakAsync(message, currentOptions, voice, ct);
                 lastError = null;
@@ -212,9 +226,10 @@ internal sealed class SpeechQueue(Action<string> status)
         bytes.Position = 0;
         using WaveStream reader = format == SpeechAudioFormat.Mp3 ? new Mp3FileReader(bytes) : new WaveFileReader(bytes);
         var decoded = reader.ToSampleProvider();
-        var samples = settings.SpeechEffectIntensity > 0 && SpeechFftFilter.Supports(settings.SpeechEffect)
-            ? await Task.Run(() => SpeechFftFilter.Apply(decoded, settings.SpeechEffect, settings.SpeechEffectIntensity, ct), ct)
-            : SpeechEffectSampleProvider.Apply(decoded, settings.SpeechEffect, settings.SpeechEffectIntensity, settings.SpeechRadioNoise);
+        var fft = settings.SpeechEffectIntensity > 0 && SpeechFftFilter.Supports(settings.SpeechEffect);
+        var samples = fft || settings.SpeechPitch != 0 || settings.SpeechFormant != 0
+            ? await Task.Run(() => SpeechVoiceTransform.Apply(ApplyEffect(), settings.SpeechPitch, settings.SpeechFormant, ct), ct)
+            : ApplyEffect();
         ct.ThrowIfCancellationRequested();
         using var device = AudioOutputDevices.Resolve(settings.AudioOutputId);
         using var player = new WasapiOut(device, AudioClientShareMode.Shared, true, 100);
@@ -240,6 +255,10 @@ internal sealed class SpeechQueue(Action<string> status)
             output = null;
             player.Stop();
         }
+
+        ISampleProvider ApplyEffect() => fft
+            ? SpeechFftFilter.Apply(decoded, settings.SpeechEffect, settings.SpeechEffectIntensity, ct)
+            : SpeechEffectSampleProvider.Apply(decoded, settings.SpeechEffect, settings.SpeechEffectIntensity, settings.SpeechRadioNoise);
     }
 
     private void Report() => status(Ui.F("В очереди: {0}", Count) + (paused ? Ui.T(" · Пауза") : "")

@@ -139,11 +139,14 @@ public partial class MainWindow : Window
         RetrySpeech.IsChecked = settings.RetrySpeech;
         RandomEdgeVoice.IsChecked = settings.RandomEdgeVoice;
         RandomEdgeVoiceInLanguage.IsChecked = settings.RandomEdgeVoiceInLanguage;
+        PinRandomEdgeVoice.IsChecked = settings.PinRandomEdgeVoice;
         LoadAudioDevices();
         Rate.Value = settings.Rate;
         Volume.Value = settings.Volume;
         SpeechEffectChoice.SelectedIndex = Enum.IsDefined(settings.SpeechEffect) ? (int)settings.SpeechEffect : 0;
         SpeechEffectIntensity.Value = settings.SpeechEffectIntensity;
+        SpeechPitch.Value = settings.SpeechPitch;
+        SpeechFormant.Value = settings.SpeechFormant;
         SpeechRadioNoise.IsChecked = settings.SpeechRadioNoise;
         UpdateSpeechEffectVisibility();
         PopulateEdgeLanguages();
@@ -197,6 +200,11 @@ public partial class MainWindow : Window
             UpdateVoiceControls();
             UpdateSpeechSettings();
         });
+        OnToggle(PinRandomEdgeVoice, () =>
+        {
+            UpdateVoiceControls();
+            UpdateSpeechSettings();
+        });
         AudioDeviceChoice.SelectionChanged += (_, _) =>
         {
             if (!loadingAudioDevices)
@@ -234,6 +242,8 @@ public partial class MainWindow : Window
             UpdateSpeechSettings();
         };
         SpeechEffectIntensity.ValueChanged += (_, _) => UpdateSpeechSettings();
+        SpeechPitch.ValueChanged += (_, _) => UpdateSpeechSettings();
+        SpeechFormant.ValueChanged += (_, _) => UpdateSpeechSettings();
         SpeechRadioNoise.Checked += (_, _) => UpdateSpeechSettings();
         SpeechRadioNoise.Unchecked += (_, _) => UpdateSpeechSettings();
         OnToggle(StartWithWindows, UpdateStartupRegistration);
@@ -725,6 +735,9 @@ public partial class MainWindow : Window
         EdgeVoiceOptions.Visibility = edge ? Visibility.Visible : Visibility.Collapsed;
         var randomVoice = RandomEdgeVoice.IsChecked == true;
         RandomEdgeVoiceInLanguage.Visibility = randomVoice ? Visibility.Visible : Visibility.Collapsed;
+        PinRandomEdgeVoice.Visibility = randomVoice ? Visibility.Visible : Visibility.Collapsed;
+        ResetPinnedVoices.Visibility = randomVoice && PinRandomEdgeVoice.IsChecked == true
+            ? Visibility.Visible : Visibility.Collapsed;
         EdgeLanguage.IsEnabled = !(randomVoice && RandomEdgeVoiceInLanguage.IsChecked == true);
         EdgeVoice.IsEnabled = !randomVoice;
         WindowsVoiceOptions.Visibility = Engine.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -826,6 +839,7 @@ public partial class MainWindow : Window
         settings.RetrySpeech = RetrySpeech.IsChecked == true;
         settings.RandomEdgeVoice = RandomEdgeVoice.IsChecked == true;
         settings.RandomEdgeVoiceInLanguage = RandomEdgeVoiceInLanguage.IsChecked == true;
+        settings.PinRandomEdgeVoice = PinRandomEdgeVoice.IsChecked == true;
         settings.AudioOutputId = AudioDeviceChoice.SelectedValue as string ?? settings.AudioOutputId;
         settings.Edge = Engine.SelectedIndex == 1;
         settings.CompatibleTts = Engine.SelectedIndex == 2;
@@ -843,6 +857,8 @@ public partial class MainWindow : Window
         settings.Volume = (int)Volume.Value;
         settings.SpeechEffect = (SpeechEffect)SpeechEffectChoice.SelectedIndex;
         settings.SpeechEffectIntensity = (int)SpeechEffectIntensity.Value;
+        settings.SpeechPitch = (int)SpeechPitch.Value;
+        settings.SpeechFormant = (int)SpeechFormant.Value;
         settings.SpeechRadioNoise = SpeechRadioNoise.IsChecked == true;
         speech.Configure(settings);
         SaveSettings(SpeechSettingsStatus);
@@ -1062,6 +1078,7 @@ public partial class MainWindow : Window
     private void PauseClicked(object sender, RoutedEventArgs e) => speech.TogglePause();
     private void SkipClicked(object sender, RoutedEventArgs e) => speech.Skip();
     private void ClearClicked(object sender, RoutedEventArgs e) => speech.Clear();
+    private void ResetPinnedVoicesClicked(object sender, RoutedEventArgs e) => speech.ResetPinnedVoices();
     private void ClearDisplayedClicked(object sender, RoutedEventArgs e)
     {
         recent.Clear();

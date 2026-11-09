@@ -1,12 +1,28 @@
-import { CanvasTexture, Mesh, MeshBasicMaterial, NoBlending, OrthographicCamera, PlaneGeometry, Scene, SRGBColorSpace, WebGLRenderer } from "three";
-import { ChromaticAberrationEffect, EffectComposer, EffectPass, GlitchEffect, GlitchMode, RenderPass, ScanlineEffect } from "postprocessing";
+import { CanvasTexture, Mesh, MeshBasicMaterial, NoBlending, OrthographicCamera, PlaneGeometry, Scene, ShaderMaterial, SRGBColorSpace, WebGLRenderer } from "three";
+import { ChromaticAberrationEffect, EffectComposer, EffectPass, GlitchEffect, GlitchMode, RenderPass, ScanlineEffect, ShaderPass } from "postprocessing";
+
+function outputPass() {
+  return new ShaderPass(new ShaderMaterial({
+    uniforms: { inputBuffer: { value: null } },
+    vertexShader: `varying vec2 vUv;
+      void main() { vUv = position.xy * 0.5 + 0.5; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+    fragmentShader: `uniform sampler2D inputBuffer;
+      varying vec2 vUv;
+      void main() {
+        gl_FragColor = texture2D(inputBuffer, vUv);
+        #include <colorspace_fragment>
+        gl_FragColor.rgb *= gl_FragColor.a;
+      }`,
+    blending: NoBlending, depthTest: false, depthWrite: false, toneMapped: false
+  }));
+}
 
 export class EffectLayer {
   constructor(zIndex, draw, failed) {
     this.draw = draw;
     this.textureCanvas = document.createElement("canvas");
     this.ctx = this.textureCanvas.getContext("2d");
-    this.renderer = new WebGLRenderer({ alpha: true, premultipliedAlpha: false, antialias: false,
+    this.renderer = new WebGLRenderer({ alpha: true, premultipliedAlpha: true, antialias: false,
       powerPreference: "high-performance", depth: false, stencil: false });
     this.renderer.setClearColor(0, 0);
     const canvas = this.renderer.domElement;
@@ -42,7 +58,11 @@ export class EffectLayer {
         this.composer.addPass(new RenderPass(this.scene, this.camera));
         if (this.glitch) this.composer.addPass(new EffectPass(this.camera, this.glitch));
         if (colorEffects.length) this.composer.addPass(new EffectPass(this.camera, ...colorEffects));
+        this.composer.addPass(outputPass());
       }
+      // OBS composites the final canvas as premultiplied RGBA. Intermediate effects use straight alpha.
+      this.mesh.material.premultipliedAlpha = !this.composer;
+      this.mesh.material.needsUpdate = true;
       this.key = key;
       this.width = undefined;
     }

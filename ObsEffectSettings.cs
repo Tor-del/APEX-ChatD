@@ -2,6 +2,7 @@ namespace TwitchChatAgent;
 
 internal enum EffectTarget { Chat, Background, Both }
 internal enum GlitchTrigger { NewMessage, Random }
+internal enum ObsPostEffect { Chromatic, Glitch, Scanlines }
 
 internal sealed record ChromaticSettings(bool Enabled = false, EffectTarget Target = EffectTarget.Chat,
     int OffsetX = 3, int OffsetY = 1, bool Radial = false, int Modulation = 15, int Intensity = 100);
@@ -17,6 +18,7 @@ internal sealed record ScanlineSettings(bool Enabled = false, EffectTarget Targe
 internal sealed record ObsEffectSettings
 {
     public bool Enabled { get; init; }
+    public ObsPostEffect[]? Items { get; init; }
     public ChromaticSettings Chromatic { get; init; } = new();
     public GlitchSettings Glitch { get; init; } = new();
     public ScanlineSettings Scanlines { get; init; } = new();
