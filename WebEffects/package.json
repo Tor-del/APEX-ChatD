@@ -1,0 +1,14 @@
+{
+  "name": "apex-chatd-web-effects",
+  "private": true,
+  "scripts": {
+    "build": "esbuild effects.js --bundle --minify --format=esm --legal-comments=eof --outfile=../Assets/obs-effects.js"
+  },
+  "dependencies": {
+    "postprocessing": "6.38.2",
+    "three": "0.180.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  }
+}

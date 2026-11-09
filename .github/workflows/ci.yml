@@ -1,0 +1,52 @@
+name: Windows build
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release-tag:
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      DOTNET_NOLOGO: 'true'
+      DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Check release version
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: |
+          if ($env:RELEASE_TAG) {
+            [xml]$project = Get-Content -Raw TwitchChatAgent.csproj
+            $version = $project.Project.PropertyGroup.Version
+            if ($env:RELEASE_TAG -cne "v$version") {
+              throw "Release tag must match v$version from TwitchChatAgent.csproj"
+            }
+          }
+      - name: Build x64 installer
+        shell: pwsh
+        run: ./installer/build.ps1
+      - name: Upload installer
+        uses: actions/upload-artifact@v6
+        with:
+          name: APEX-ChatD-win-x64
+          path: bin/Setup/APEX-Chatd-Setup-*-x64.exe
+          if-no-files-found: error
+          retention-days: 14
