@@ -69,7 +69,14 @@ internal sealed class PluginManager
     public IEnumerable<Entry> Entries => entries.Where(entry => !Removed(entry));
     public IReadOnlyDictionary<string, ApexChatd.Plugins.SpeechProvider> Providers => providers;
     public IEnumerable<Shortcut> Shortcuts => active.SelectMany(context => context.Shortcuts.Values);
-    public bool Enabled(Entry entry) => preferences.TryGetValue(entry.Key, out var value) ? value.Enabled : entry.Bundled;
+    public bool Enabled(Entry entry)
+    {
+        // Older versions could mark a bundled plugin as removed. A package shipped
+        // with this build uses its default unless the user explicitly disabled it.
+        if (preferences.TryGetValue(entry.Key, out var value) && (!entry.Bundled || !value.Removed))
+            return value.Enabled;
+        return entry.Bundled;
+    }
     private bool Removed(Entry entry) => !entry.Bundled &&
         preferences.TryGetValue(entry.Key, out var value) && value.Removed;
     public static string OpenablePackageDirectory()
