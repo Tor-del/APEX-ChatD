@@ -7,6 +7,8 @@ internal sealed record VoiceLanguage(string Code, string Name);
 
 internal static class EdgeVoiceCatalog
 {
+    public static string InterfaceLocale => Ui.Language == "ru" ? "ru-RU" : "en-US";
+
     // Fallback voices from LazySkald's LanguageCatalog.
     public static IReadOnlyList<SpeechVoice> Defaults { get; } =
     [

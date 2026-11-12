@@ -1,14 +1,18 @@
 using System.Security.Cryptography;
 using System.Text.Json;
-using System.Text;
-using ScreenReader.Speech;
 
 namespace TwitchChatAgent;
 
 internal sealed record ChatTheme(string Font = "Segoe UI", int Size = 20, string Text = "#FFFFFF",
     string Name = "#BFA6FF", string Background = "#171322", int Opacity = 75, int Rows = 8, int Radius = 0, bool UseTwitchNameColor = true,
     bool HideExpiredMessages = false, int MessageTimeoutSeconds = 15, bool NewestAtTop = false,
-    bool AnimateMessages = false, int MessageTransitionMs = 280, ObsMessageMotion? MessageMotion = null);
+    bool AnimateMessages = false, int MessageTransitionMs = 280, ObsMessageMotion? MessageMotion = null,
+    ObsMessageStyle? MessageStyle = null);
+
+internal sealed record ObsMessageStyle(bool Enabled = false, string Background = "#CC171322", int Radius = 8,
+    int Padding = 8, string BorderColor = "#BFA6FF", int BorderWidth = 0);
+
+internal sealed record SpeechPrefixRule(bool Enabled = true, string Prefix = "!", bool Inverted = true);
 
 internal enum ObsMessageEffect { Slide, Scale, Fade, Particles }
 [Flags]
@@ -45,29 +49,17 @@ internal sealed record Settings
     public ObsEffectSettings ObsEffects { get; set; } = new();
     public bool Speech { get; set; }
     public bool ReadName { get; set; }
-    public bool Edge { get; set; }
-    public bool CompatibleTts { get; set; }
-    public string TtsEndpoint { get; set; } = "http://127.0.0.1:5050/v1/audio/speech";
-    public string TtsModel { get; set; } = "tts-1";
-    public string TtsVoice { get; set; } = "alloy";
-    public SpeechAudioFormat TtsFormat { get; set; } = SpeechAudioFormat.Mp3;
-    public string ProtectedTtsKey { get; set; } = "";
-    public string WindowsVoice { get; set; } = "";
+    public string ReadNamePhrase { get; set; } = "";
+    public SpeechPrefixRule SpeechFilter { get; set; } = new();
+    public bool SkipSpeechEmotes { get; set; }
+    public SpeechVoiceProfile[] SpeechVoices { get; set; } = [];
+    public Guid? PrimarySpeechVoiceId { get; set; }
     public bool RetrySpeech { get; set; }
     public string AudioOutputId { get; set; } = "";
-    public bool RandomEdgeVoice { get; set; }
-    public bool RandomEdgeVoiceInLanguage { get; set; }
-    public bool PinRandomEdgeVoice { get; set; }
-    public int SpeechPitch { get; set; }
-    public int SpeechFormant { get; set; }
+    public bool RandomSpeechVoice { get; set; }
+    public bool PinSpeechVoice { get; set; }
     public QueueBindings SpeechHotkeys { get; set; } = new();
-    public string? EdgeLanguage { get; set; }
-    public string EdgeVoice { get; set; } = "ru-RU-SvetlanaNeural";
-    public int Rate { get; set; }
     public int Volume { get; set; } = 100;
-    public SpeechEffect SpeechEffect { get; set; }
-    public int SpeechEffectIntensity { get; set; } = 75;
-    public bool SpeechRadioNoise { get; set; }
     public ChatTheme DesktopTheme { get; set; } = new();
     public ChatTheme ObsTheme { get; set; } = new(Opacity: 0);
     public double Left { get; set; } = 32;
@@ -75,17 +67,28 @@ internal sealed record Settings
     public double Width { get; set; } = 420;
     public double Height { get; set; } = 300;
 
-    public static Settings Load() => File.Exists(Path.Combine(Folder, "settings.json"))
-        ? JsonSerializer.Deserialize<Settings>(File.ReadAllBytes(Path.Combine(Folder, "settings.json"))) ?? new()
-        : new();
+    public static Settings Load()
+    {
+        var path = Path.Combine(Folder, "settings.json");
+        if (!File.Exists(path))
+            return new();
+
+        using var document = JsonDocument.Parse(File.ReadAllBytes(path));
+        var root = document.RootElement;
+        var settings = root.Deserialize<Settings>() ?? new();
+        if (root.ValueKind != JsonValueKind.Object || root.TryGetProperty(nameof(SpeechFilter), out _))
+            return settings;
+
+        var hadPrefixFilter = root.TryGetProperty("FilterSpeechByPrefix", out var filter) && filter.ValueKind == JsonValueKind.True;
+        var skippedCommands = !root.TryGetProperty("SkipSpeechCommands", out var skip) || skip.ValueKind != JsonValueKind.False;
+        var prefix = root.TryGetProperty("SpeechPrefix", out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() ?? "" : "";
+        settings.SpeechFilter = hadPrefixFilter ? new(true, prefix, false)
+            : skippedCommands ? new() : new(false, prefix, false);
+        return settings;
+    }
 
     public void Save() => Write("settings.json", JsonSerializer.SerializeToUtf8Bytes(this));
-
-    public string ReadTtsKey() => string.IsNullOrEmpty(ProtectedTtsKey) ? "" :
-        Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(ProtectedTtsKey), null, DataProtectionScope.CurrentUser));
-
-    public void SetTtsKey(string key) => ProtectedTtsKey = string.IsNullOrWhiteSpace(key) ? "" :
-        Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(key.Trim()), null, DataProtectionScope.CurrentUser));
 
     public static TwitchTokens? LoadTokens(string clientId)
     {

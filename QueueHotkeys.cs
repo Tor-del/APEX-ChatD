@@ -4,7 +4,7 @@ using System.Windows.Threading;
 
 namespace TwitchChatAgent;
 
-internal enum QueueAction { Pause = 1, Skip, Clear }
+internal enum QueueAction { Pause = 1, Skip, Clear, ClearDisplayed }
 
 internal sealed record QueueShortcut(uint Modifiers, uint Key)
 {
@@ -20,14 +20,24 @@ internal sealed record QueueShortcut(uint Modifiers, uint Key)
     }.Where(part => part is not null));
 }
 
-internal sealed record QueueBindings(QueueShortcut? Pause = null, QueueShortcut? Skip = null, QueueShortcut? Clear = null)
+internal sealed record QueueBindings(QueueShortcut? Pause = null, QueueShortcut? Skip = null,
+    QueueShortcut? Clear = null, QueueShortcut? ClearDisplayed = null)
 {
-    public QueueShortcut? Get(QueueAction action) => action switch { QueueAction.Pause => Pause, QueueAction.Skip => Skip, _ => Clear };
+    public QueueShortcut? Get(QueueAction action) => action switch
+    {
+        QueueAction.Pause => Pause,
+        QueueAction.Skip => Skip,
+        QueueAction.Clear => Clear,
+        QueueAction.ClearDisplayed => ClearDisplayed,
+        _ => throw new ArgumentOutOfRangeException(nameof(action))
+    };
     public QueueBindings Set(QueueAction action, QueueShortcut? key) => action switch
     {
         QueueAction.Pause => this with { Pause = key },
         QueueAction.Skip => this with { Skip = key },
-        _ => this with { Clear = key }
+        QueueAction.Clear => this with { Clear = key },
+        QueueAction.ClearDisplayed => this with { ClearDisplayed = key },
+        _ => throw new ArgumentOutOfRangeException(nameof(action))
     };
 }
 

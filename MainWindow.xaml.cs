@@ -4,11 +4,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Navigation;
 using System.Windows.Threading;
-using ScreenReader.Speech;
-using ScreenReader.Edge;
 using Forms = System.Windows.Forms;
-using Windows.Media.SpeechSynthesis;
 
 namespace TwitchChatAgent;
 
@@ -46,11 +44,6 @@ public partial class MainWindow : Window
     private bool checkingUpdates;
 
     private bool closePromptOpen;
-    private bool populatingEdgeVoices;
-    private bool edgeCatalogLoaded;
-    private bool edgeCatalogLoading;
-    private readonly CancellationTokenSource voiceCatalogLifetime = new();
-    private IReadOnlyList<SpeechVoice> edgeVoices = EdgeVoiceCatalog.Defaults;
     private int tests;
 
     public MainWindow()
@@ -93,7 +86,7 @@ public partial class MainWindow : Window
         speech = new SpeechQueue(value =>
         {
             SpeechStatus.Text = value;
-            PauseQueueButton.IsEnabled = SpeechEnabled.IsChecked == true;
+            PauseQueueButton.IsEnabled = settings.Speech && settings.SpeechVoices.Length > 0;
             PauseQueueIcon.Text = speech!.Paused ? "\uE768" : "\uE769";
             PauseQueueLabel.Text = speech.Paused ? Ui.T("Продолжить") : Ui.T("Пауза");
             trayQueue.Text = Ui.F("В очереди: {0}", speech!.Count) + (speech.Paused ? Ui.T(" · Пауза") : "");
@@ -120,12 +113,14 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             StartWithWindows.IsEnabled = false;
-            AppStatus.Text = Ui.F("Не удалось прочитать настройку автозапуска: {0}", ex.Message);
+            StartupStatus.Text = Ui.F("Не удалось прочитать настройку автозапуска: {0}", ex.Message);
         }
 
         OverlayTheme.Content = desktopTheme = new ThemeEditor(settings.DesktopTheme);
         ObsTheme.Content = obsTheme = new ThemeEditor(settings.ObsTheme, CreateObsBackgroundControls());
+        settings.ObsTheme = settings.ObsTheme with { MessageMotion = obsTheme.MessageMotion };
         var effectsEditor = new ObsEffectsEditor(settings.ObsEffects);
+        settings.ObsEffects = effectsEditor.Value;
         ObsEffects.Content = effectsEditor;
         effectsEditor.Changed += effects =>
         {
@@ -140,42 +135,19 @@ public partial class MainWindow : Window
         ObsEnabled.IsChecked = settings.Obs;
         SpeechEnabled.IsChecked = settings.Speech;
         ReadName.IsChecked = settings.ReadName;
-        WindowsVoice.ItemsSource = SpeechSynthesizer.AllVoices;
-        WindowsVoice.SelectedValue = settings.WindowsVoice;
-        if (WindowsVoice.SelectedIndex < 0 && WindowsVoice.Items.Count > 0)
-            WindowsVoice.SelectedValue = SpeechSynthesizer.AllVoices
-                .FirstOrDefault(voice => voice.Language.StartsWith("ru-", StringComparison.OrdinalIgnoreCase))?.Id
-                ?? SpeechSynthesizer.DefaultVoice.Id;
-        settings.WindowsVoice = WindowsVoice.SelectedValue as string ?? "";
+        ReadNamePhrase.Text = settings.ReadNamePhrase;
+        FilterSpeechByPrefix.IsChecked = settings.SpeechFilter.Enabled;
+        SpeechPrefix.Text = settings.SpeechFilter.Prefix;
+        InvertSpeechPrefix.IsChecked = settings.SpeechFilter.Inverted;
+        SkipSpeechEmotes.IsChecked = settings.SkipSpeechEmotes;
         RetrySpeech.IsChecked = settings.RetrySpeech;
-        RandomEdgeVoice.IsChecked = settings.RandomEdgeVoice;
-        RandomEdgeVoiceInLanguage.IsChecked = settings.RandomEdgeVoiceInLanguage;
-        PinRandomEdgeVoice.IsChecked = settings.PinRandomEdgeVoice;
-        LoadAudioDevices();
-        Rate.Value = settings.Rate;
+        RandomSpeechVoice.IsChecked = settings.RandomSpeechVoice;
+        PinSpeechVoice.IsChecked = settings.PinSpeechVoice;
         Volume.Value = settings.Volume;
-        SpeechEffectChoice.SelectedIndex = Enum.IsDefined(settings.SpeechEffect) ? (int)settings.SpeechEffect : 0;
-        SpeechEffectIntensity.Value = settings.SpeechEffectIntensity;
-        SpeechPitch.Value = settings.SpeechPitch;
-        SpeechFormant.Value = settings.SpeechFormant;
-        SpeechRadioNoise.IsChecked = settings.SpeechRadioNoise;
-        UpdateSpeechEffectVisibility();
-        PopulateEdgeLanguages();
-        TtsEndpoint.Text = settings.TtsEndpoint;
-        TtsModel.Text = settings.TtsModel;
-        TtsVoice.Text = settings.TtsVoice;
-        TtsFormat.SelectedIndex = settings.TtsFormat == SpeechAudioFormat.Wave ? 1 : 0;
-        try
-        {
-            TtsApiKey.Password = settings.ReadTtsKey();
-        }
-        catch (Exception ex) when (ex is System.Security.Cryptography.CryptographicException or FormatException)
-        {
-            SpeechSettingsStatus.Text = Ui.T("Не удалось прочитать ключ TTS. Введите его заново.");
-        }
-        Engine.SelectedIndex = settings.CompatibleTts ? 2 : settings.Edge ? 1 : 0;
-        UpdateVoiceControls();
-        ObsLink.Text = ObsServer.Url;
+        LoadAudioDevices();
+        RefreshVoiceProfiles();
+        UpdateVoiceSelectionOptions();
+        ObsLink.Text = NewObsLink();
         UpdateObsBackgroundLabel();
         speech.Configure(settings);
 
@@ -200,20 +172,20 @@ public partial class MainWindow : Window
         OnToggle(ObsEnabled, async () => await UpdateObsAsync());
         OnToggle(SpeechEnabled, UpdateSpeechSettings);
         OnToggle(ReadName, UpdateSpeechSettings);
+        ReadNamePhrase.TextChanged += (_, _) => UpdateSpeechSettings();
+        OnToggle(FilterSpeechByPrefix, UpdateSpeechSettings);
+        OnToggle(InvertSpeechPrefix, UpdateSpeechSettings);
+        SpeechPrefix.TextChanged += (_, _) => UpdateSpeechSettings();
+        OnToggle(SkipSpeechEmotes, UpdateSpeechSettings);
         OnToggle(RetrySpeech, UpdateSpeechSettings);
-        OnToggle(RandomEdgeVoice, () =>
+        OnToggle(RandomSpeechVoice, () =>
         {
-            UpdateVoiceControls();
+            UpdateVoiceSelectionOptions();
             UpdateSpeechSettings();
         });
-        OnToggle(RandomEdgeVoiceInLanguage, () =>
+        OnToggle(PinSpeechVoice, () =>
         {
-            UpdateVoiceControls();
-            UpdateSpeechSettings();
-        });
-        OnToggle(PinRandomEdgeVoice, () =>
-        {
-            UpdateVoiceControls();
+            UpdateVoiceSelectionOptions();
             UpdateSpeechSettings();
         });
         AudioDeviceChoice.SelectionChanged += (_, _) =>
@@ -221,50 +193,15 @@ public partial class MainWindow : Window
             if (!loadingAudioDevices)
                 UpdateSpeechSettings();
         };
-        Engine.SelectionChanged += (_, _) => ProviderChanged();
-        TtsEndpoint.TextChanged += (_, _) => UpdateSpeechSettings();
-        TtsModel.TextChanged += (_, _) => UpdateSpeechSettings();
-        TtsVoice.TextChanged += (_, _) => UpdateSpeechSettings();
-        TtsFormat.SelectionChanged += (_, _) => UpdateSpeechSettings();
-        TtsApiKey.PasswordChanged += (_, _) =>
-        {
-            try
-            {
-                settings.SetTtsKey(TtsApiKey.Password);
-                UpdateSpeechSettings();
-            }
-            catch (System.Security.Cryptography.CryptographicException ex)
-            {
-                SpeechSettingsStatus.Text = Ui.F("Не удалось сохранить настройки: {0}", ex.Message);
-            }
-        };
-        WindowsVoice.SelectionChanged += (_, _) => UpdateSpeechSettings();
-        EdgeLanguage.SelectionChanged += (_, _) => EdgeLanguageChanged();
-        EdgeVoice.SelectionChanged += (_, _) =>
-        {
-            if (!populatingEdgeVoices)
-                UpdateSpeechSettings();
-        };
-        Rate.ValueChanged += (_, _) => UpdateSpeechSettings();
         Volume.ValueChanged += (_, _) => UpdateSpeechSettings();
-        SpeechEffectChoice.SelectionChanged += (_, _) =>
-        {
-            UpdateSpeechEffectVisibility();
-            UpdateSpeechSettings();
-        };
-        SpeechEffectIntensity.ValueChanged += (_, _) => UpdateSpeechSettings();
-        SpeechPitch.ValueChanged += (_, _) => UpdateSpeechSettings();
-        SpeechFormant.ValueChanged += (_, _) => UpdateSpeechSettings();
-        SpeechRadioNoise.Checked += (_, _) => UpdateSpeechSettings();
-        SpeechRadioNoise.Unchecked += (_, _) => UpdateSpeechSettings();
         OnToggle(StartWithWindows, UpdateStartupRegistration);
         OnToggle(StartMinimized, () =>
         {
-            UpdateAppSettings();
+            UpdateAppSettings(StartupStatus);
             if (StartWithWindows.IsChecked == true)
                 UpdateStartupRegistration();
         });
-        OnToggle(MinimizeToTray, UpdateAppSettings);
+        OnToggle(MinimizeToTray, () => UpdateAppSettings(StartupStatus));
         OnToggle(AutoCheckUpdates, () =>
         {
             settings.AutoCheckUpdates = AutoCheckUpdates.IsChecked == true;
@@ -272,7 +209,7 @@ public partial class MainWindow : Window
             ScheduleUpdateChecks();
         });
         StateChanged += (_, _) => HideMinimizedWindow();
-        AppThemeChoice.SelectionChanged += (_, _) => UpdateAppSettings();
+        AppThemeChoice.SelectionChanged += (_, _) => UpdateAppSettings(ThemeStatus);
         LanguageChoice.SelectionChanged += async (_, _) => await UpdateLanguageAsync();
         overlayExpiryTimer.Tick += (_, _) => RenderOverlay();
         placementTimer.Tick += (_, _) => SaveOverlayPosition();
@@ -318,8 +255,8 @@ public partial class MainWindow : Window
     internal async Task StartAsync()
     {
         ScheduleUpdateChecks();
-        if (settings.Edge)
-            _ = LoadEdgeCatalogAsync();
+        if (HasMissingSpeechVoice)
+            tray.ShowBalloonTip(5000, Ui.XamlText("Speech"), Ui.XamlText("MissingSpeechVoices"), Forms.ToolTipIcon.Warning);
         ApplyOverlay();
         if (settings.Obs)
             await UpdateObsAsync();
@@ -498,8 +435,19 @@ public partial class MainWindow : Window
             cancellation.Token.ThrowIfCancellationRequested();
             if (saved is null)
                 Settings.SaveTokens(clientId, tokens);
-            await TwitchClient.MonitorAsync(clientId, tokens, updated => Settings.SaveTokens(clientId, updated),
-                SetTwitchStatus, Publish, SetModeration, cancellation.Token);
+            await TwitchClient.MonitorAsync(clientId, tokens, updated =>
+            {
+                try { Settings.SaveTokens(clientId, updated); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+                {
+                    NotifyTwitch(Ui.T("Не удалось сохранить обновлённый вход Twitch. После перезапуска может потребоваться повторный вход."));
+                }
+            }, SetTwitchStatus, Publish, RemoveChatMessages, SetModeration, cancellation.Token);
+        }
+        catch (TwitchSignInRequiredException ex)
+        {
+            TwitchStatus.Text = ex.Message;
+            NotifyTwitch(ex.Message);
         }
         catch (OperationCanceledException)
         {
@@ -524,6 +472,12 @@ public partial class MainWindow : Window
     }
 
     private void SetTwitchStatus(string value) => TwitchStatus.Text = value;
+
+    private void NotifyTwitch(string message)
+    {
+        if (!exiting)
+            tray.ShowBalloonTip(5000, "Twitch", message, Forms.ToolTipIcon.Warning);
+    }
 
     private void DisconnectClicked(object sender, RoutedEventArgs e)
     {
@@ -610,8 +564,9 @@ public partial class MainWindow : Window
     }
     private void SetModeration(TwitchModeration? session)
     {
+        if (moderation?.ChannelId != session?.ChannelId)
+            streamLive = null;
         moderation = session;
-        streamLive = null;
         ReconnectButton.Visibility = session is not null && !session.CanDelete
             ? Visibility.Visible : Visibility.Collapsed;
         if (exiting)
@@ -698,12 +653,7 @@ public partial class MainWindow : Window
                 return;
 
             await TwitchClient.DeleteMessageAsync(session, message, cancellation.Token);
-            bool Matches(ChatMessage candidate) => candidate.ChannelId == session.ChannelId &&
-                candidate.Id == message.Id;
-            recent.RemoveAll(Matches);
-            speech.Remove(Matches);
-            RefreshChatList();
-            RenderChat();
+            RemoveChatMessages(candidate => candidate.ChannelId == session.ChannelId && candidate.Id == message.Id);
             ModerationStatus.Text = Ui.T("Сообщение удалено.");
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
@@ -715,6 +665,15 @@ public partial class MainWindow : Window
         {
             moderating = false;
         }
+    }
+
+    private void RemoveChatMessages(Func<ChatMessage, bool> matches)
+    {
+        speech.Remove(matches);
+        if (recent.RemoveAll(matches.Invoke) == 0)
+            return;
+        RefreshChatList();
+        RenderChat();
     }
 
     private void ApplyOverlay()
@@ -807,7 +766,7 @@ public partial class MainWindow : Window
             ObsStatus.Text = enabled ? Ui.T("Страница для OBS включена. Добавь ссылку в источник «Браузер».") : Ui.T("Страница для OBS выключена.");
             SaveSettings(ObsStatus);
             if (openBrowser && !exiting)
-                Process.Start(new ProcessStartInfo(ObsServer.Url) { UseShellExecute = true });
+                Process.Start(new ProcessStartInfo(ObsLink.Text) { UseShellExecute = true });
         }
         catch (Exception ex)
         {
@@ -868,11 +827,15 @@ public partial class MainWindow : Window
         obsBackgroundName.ToolTip = path;
         clearObsBackground.IsEnabled = path is not null;
     }
+    private static string NewObsLink() => $"{ObsServer.Url}?{Guid.NewGuid():N}";
+
     private void CopyObsClicked(object sender, RoutedEventArgs e)
     {
         try
         {
-            Clipboard.SetText(ObsServer.Url);
+            var link = NewObsLink();
+            Clipboard.SetText(link);
+            ObsLink.Text = link;
             ObsStatus.Text = Ui.T("Ссылка скопирована.");
         }
         catch (Exception ex)
@@ -881,154 +844,22 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ProviderChanged()
-    {
-        UpdateVoiceControls();
-        UpdateSpeechSettings();
-        if (settings.Edge)
-            _ = LoadEdgeCatalogAsync();
-    }
-
-    private void UpdateVoiceControls()
-    {
-        var edge = Engine.SelectedIndex == 1;
-        EdgeVoiceOptions.Visibility = edge ? Visibility.Visible : Visibility.Collapsed;
-        var randomVoice = RandomEdgeVoice.IsChecked == true;
-        RandomEdgeVoiceInLanguage.Visibility = randomVoice ? Visibility.Visible : Visibility.Collapsed;
-        PinRandomEdgeVoice.Visibility = randomVoice ? Visibility.Visible : Visibility.Collapsed;
-        ResetPinnedVoices.Visibility = randomVoice && PinRandomEdgeVoice.IsChecked == true
-            ? Visibility.Visible : Visibility.Collapsed;
-        EdgeLanguage.IsEnabled = !(randomVoice && RandomEdgeVoiceInLanguage.IsChecked == true);
-        EdgeVoice.IsEnabled = !randomVoice;
-        WindowsVoiceOptions.Visibility = Engine.SelectedIndex == 0 ? Visibility.Visible : Visibility.Collapsed;
-        CompatibleTtsOptions.Visibility = Engine.SelectedIndex == 2 ? Visibility.Visible : Visibility.Collapsed;
-        if (Engine.SelectedIndex == 0)
-            SpeechSettingsStatus.Text = WindowsVoice.Items.Count == 0 ? Ui.T("В Windows нет установленных голосов.") : "";
-        else if (edge)
-            SpeechSettingsStatus.Text = "";
-    }
-
-    private void PopulateEdgeLanguages()
-    {
-        var language = settings.EdgeLanguage ?? EdgeVoiceCatalog.LocaleFromVoice(settings.EdgeVoice);
-        if (edgeVoices.All(voice => voice.ShortName != settings.EdgeVoice) && !string.IsNullOrWhiteSpace(settings.EdgeVoice))
-            edgeVoices = edgeVoices.Append(new SpeechVoice(settings.EdgeVoice, settings.EdgeVoice, language, "")).ToArray();
-
-        populatingEdgeVoices = true;
-        try
-        {
-            EdgeLanguage.ItemsSource = edgeVoices.Select(voice => voice.Locale).Distinct(StringComparer.OrdinalIgnoreCase)
-                .Select(locale => new VoiceLanguage(locale, EdgeVoiceCatalog.LanguageName(locale))).OrderBy(item => item.Name).ToArray();
-            EdgeLanguage.SelectedValue = language;
-            if (EdgeLanguage.SelectedIndex < 0)
-                EdgeLanguage.SelectedIndex = 0;
-            PopulateEdgeVoices(settings.EdgeVoice);
-        }
-        finally
-        {
-            populatingEdgeVoices = false;
-        }
-    }
-
-    private void PopulateEdgeVoices(string preferred)
-    {
-        var locale = EdgeLanguage.SelectedValue as string;
-        EdgeVoice.ItemsSource = edgeVoices.Where(voice => string.Equals(voice.Locale, locale, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(voice => voice.FriendlyName).ToArray();
-        EdgeVoice.SelectedValue = preferred;
-        if (EdgeVoice.SelectedIndex < 0)
-            EdgeVoice.SelectedIndex = 0;
-    }
-
-    private void EdgeLanguageChanged()
-    {
-        if (populatingEdgeVoices)
-            return;
-
-        populatingEdgeVoices = true;
-        try
-        {
-            PopulateEdgeVoices(settings.EdgeVoice);
-        }
-        finally
-        {
-            populatingEdgeVoices = false;
-        }
-        UpdateSpeechSettings();
-    }
-
-    private async Task LoadEdgeCatalogAsync()
-    {
-        if (edgeCatalogLoaded || edgeCatalogLoading || exiting)
-            return;
-        edgeCatalogLoading = true;
-        SpeechSettingsStatus.Text = Ui.T("Загружаем каталог Edge TTS…");
-        try
-        {
-            var loaded = await speech.GetEdgeVoicesAsync(voiceCatalogLifetime.Token);
-            if (exiting)
-                return;
-            if (loaded.Count == 0)
-                throw new InvalidOperationException(Ui.T("Каталог голосов пуст."));
-            edgeVoices = loaded;
-            speech.SetEdgeVoices(loaded);
-            edgeCatalogLoaded = true;
-            PopulateEdgeLanguages();
-            if (settings.Edge)
-            {
-                SpeechSettingsStatus.Text = "";
-                UpdateSpeechSettings();
-            }
-        }
-        catch (OperationCanceledException) when (exiting) { }
-        catch (Exception ex)
-        {
-            if (!exiting && settings.Edge)
-                SpeechSettingsStatus.Text = Ui.F("Каталог Edge TTS недоступен ({0}). Показаны встроенные варианты.", EdgeSpeechClient.DescribeFailure(ex));
-        }
-        finally
-        {
-            edgeCatalogLoading = false;
-        }
-    }
-
     private void UpdateSpeechSettings()
     {
         settings.Speech = SpeechEnabled.IsChecked == true;
         settings.ReadName = ReadName.IsChecked == true;
+        settings.ReadNamePhrase = ReadNamePhrase.Text.Trim();
+        settings.SpeechFilter = new(FilterSpeechByPrefix.IsChecked == true, SpeechPrefix.Text.Trim(),
+            InvertSpeechPrefix.IsChecked == true);
+        settings.SkipSpeechEmotes = SkipSpeechEmotes.IsChecked == true;
         settings.RetrySpeech = RetrySpeech.IsChecked == true;
-        settings.RandomEdgeVoice = RandomEdgeVoice.IsChecked == true;
-        settings.RandomEdgeVoiceInLanguage = RandomEdgeVoiceInLanguage.IsChecked == true;
-        settings.PinRandomEdgeVoice = PinRandomEdgeVoice.IsChecked == true;
+        settings.RandomSpeechVoice = RandomSpeechVoice.IsChecked == true;
+        settings.PinSpeechVoice = PinSpeechVoice.IsChecked == true;
         settings.AudioOutputId = AudioDeviceChoice.SelectedValue as string ?? settings.AudioOutputId;
-        settings.Edge = Engine.SelectedIndex == 1;
-        settings.CompatibleTts = Engine.SelectedIndex == 2;
-        settings.TtsEndpoint = TtsEndpoint.Text.Trim();
-        settings.TtsModel = TtsModel.Text.Trim();
-        settings.TtsVoice = TtsVoice.Text.Trim();
-        settings.TtsFormat = TtsFormat.SelectedIndex == 1 ? SpeechAudioFormat.Wave : SpeechAudioFormat.Mp3;
-        if (EdgeVoice.SelectedItem is SpeechVoice voice)
-        {
-            settings.EdgeVoice = voice.ShortName;
-            settings.EdgeLanguage = voice.Locale;
-        }
-        settings.WindowsVoice = WindowsVoice.SelectedValue as string ?? "";
-        settings.Rate = (int)Rate.Value;
         settings.Volume = (int)Volume.Value;
-        settings.SpeechEffect = (SpeechEffect)SpeechEffectChoice.SelectedIndex;
-        settings.SpeechEffectIntensity = (int)SpeechEffectIntensity.Value;
-        settings.SpeechPitch = (int)SpeechPitch.Value;
-        settings.SpeechFormant = (int)SpeechFormant.Value;
-        settings.SpeechRadioNoise = SpeechRadioNoise.IsChecked == true;
+        UpdateMissingSpeechVoiceWarning();
         speech.Configure(settings);
         SaveSettings(SpeechSettingsStatus);
-    }
-
-    private void UpdateSpeechEffectVisibility()
-    {
-        SpeechEffectControls.Visibility = SpeechEffectChoice.SelectedIndex > 0 ? Visibility.Visible : Visibility.Collapsed;
-        SpeechRadioNoise.Visibility = SpeechEffectChoice.SelectedIndex == (int)SpeechEffect.Radio
-            ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void RefreshAudioDevicesClicked(object sender, RoutedEventArgs e) => LoadAudioDevices();
@@ -1068,6 +899,7 @@ public partial class MainWindow : Window
             case QueueAction.Pause: speech.TogglePause(); break;
             case QueueAction.Skip: speech.Skip(); break;
             case QueueAction.Clear: speech.Clear(); break;
+            case QueueAction.ClearDisplayed: ClearDisplayedMessages(); break;
         }
     }
 
@@ -1077,6 +909,7 @@ public partial class MainWindow : Window
         PauseShortcut.Text = settings.SpeechHotkeys.Pause?.ToString() ?? unset;
         SkipShortcut.Text = settings.SpeechHotkeys.Skip?.ToString() ?? unset;
         ClearShortcut.Text = settings.SpeechHotkeys.Clear?.ToString() ?? unset;
+        ClearDisplayedShortcut.Text = settings.SpeechHotkeys.ClearDisplayed?.ToString() ?? unset;
     }
 
     private void ShortcutFocused(object sender, KeyboardFocusChangedEventArgs e)
@@ -1090,7 +923,8 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(new Action(() =>
         {
             if (!exiting && hotkeys is not null &&
-                Keyboard.FocusedElement != PauseShortcut && Keyboard.FocusedElement != SkipShortcut && Keyboard.FocusedElement != ClearShortcut)
+                Keyboard.FocusedElement != PauseShortcut && Keyboard.FocusedElement != SkipShortcut &&
+                Keyboard.FocusedElement != ClearShortcut && Keyboard.FocusedElement != ClearDisplayedShortcut)
             {
                 var errors = hotkeys.Suspend(false);
                 if (errors.Length != 0)
@@ -1163,7 +997,7 @@ public partial class MainWindow : Window
         }
     }
 
-    private void UpdateAppSettings()
+    private void UpdateAppSettings(TextBlock status)
     {
         var theme = (AppTheme)AppThemeChoice.SelectedIndex;
         if (settings.Theme != theme)
@@ -1172,8 +1006,8 @@ public partial class MainWindow : Window
         settings.StartMinimized = StartMinimized.IsChecked == true;
         settings.MinimizeToTray = MinimizeToTray.IsChecked == true;
         HideMinimizedWindow();
-        AppStatus.Text = "";
-        SaveSettings(AppStatus);
+        status.Text = "";
+        SaveSettings(status);
     }
 
     private async Task UpdateLanguageAsync()
@@ -1194,7 +1028,7 @@ public partial class MainWindow : Window
         {
             settings.Language = previous;
             LanguageChoice.SelectedIndex = previous == "en" ? 1 : 0;
-            AppStatus.Text = Ui.F("Не удалось сохранить настройки: {0}", ex.Message);
+            LanguageStatus.Text = Ui.F("Не удалось сохранить настройки: {0}", ex.Message);
             return;
         }
 
@@ -1203,7 +1037,7 @@ public partial class MainWindow : Window
     }
     private async void ResetSettingsClicked(object sender, RoutedEventArgs e)
     {
-        if (MessageBox.Show(this, Ui.T("Сбросить настройки и перезапустить приложение? Подключение Twitch сохранится."),
+        if (MessageBox.Show(this, Ui.T("Сбросить все настройки и перезапустить приложение? Подключение Twitch сохранится."),
             Ui.T("Сброс настроек"), MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
             return;
 
@@ -1226,20 +1060,35 @@ public partial class MainWindow : Window
         try
         {
             StartupRegistration.SetEnabled(StartWithWindows.IsChecked == true);
-            AppStatus.Text = "";
+            StartupStatus.Text = "";
         }
         catch (Exception ex)
         {
-            AppStatus.Text = Ui.F("Не удалось изменить автозапуск: {0}", ex.Message);
+            StartupStatus.Text = Ui.F("Не удалось изменить автозапуск: {0}", ex.Message);
         }
     }
+    private void AuthorGitHubRequested(object sender, RequestNavigateEventArgs e)
+    {
+        e.Handled = true;
+        try
+        {
+            Process.Start(new ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, ex.Message, "GitHub", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
     private void TestClicked(object sender, RoutedEventArgs e) =>
         Publish(new ChatMessage(Ui.T("Пример"), Ui.F("Тестовое сообщение номер {0}.", ++tests)));
     private void PauseClicked(object sender, RoutedEventArgs e) => speech.TogglePause();
     private void SkipClicked(object sender, RoutedEventArgs e) => speech.Skip();
     private void ClearClicked(object sender, RoutedEventArgs e) => speech.Clear();
     private void ResetPinnedVoicesClicked(object sender, RoutedEventArgs e) => speech.ResetPinnedVoices();
-    private void ClearDisplayedClicked(object sender, RoutedEventArgs e)
+    private void ClearDisplayedClicked(object sender, RoutedEventArgs e) => ClearDisplayedMessages();
+
+    private void ClearDisplayedMessages()
     {
         recent.Clear();
         Recent.Items.Clear();

@@ -131,7 +131,10 @@ internal sealed class ObsServer
           #background { position: fixed; inset: 0; visibility: hidden; }
           #chat { visibility: hidden; }
           .emote { display: inline-block; width: 1.35em; height: 1.35em; object-fit: contain; vertical-align: -.25em; }
-          .message { flex: none; overflow-wrap: anywhere; white-space: pre-wrap; margin-top: 4px; }
+          .message { flex: none; overflow-wrap: anywhere; white-space: pre-wrap; margin-top: 4px;
+                     background-color: var(--message-background, transparent);
+                     border-radius: var(--message-radius, 0px); padding: var(--message-padding, 0px);
+                     border: var(--message-border-width, 0px) solid var(--message-border-color, transparent); }
         </style>
         <div id="background"></div>
         <main id="chat"></main>
@@ -238,7 +241,12 @@ internal sealed class ObsServer
                 chat.style.fontFamily = theme.font;
                 chat.style.fontSize = theme.size + 'px';
                 chat.style.color = cssColor(theme.text);
-                chat.style.borderRadius = theme.radius + 'px';
+                const style = theme.messageStyle?.enabled ? theme.messageStyle : null;
+                chat.style.setProperty('--message-background', style ? cssColor(style.background) : 'transparent');
+                chat.style.setProperty('--message-radius', (style?.radius ?? 0) + 'px');
+                chat.style.setProperty('--message-padding', (style?.padding ?? 0) + 'px');
+                chat.style.setProperty('--message-border-width', (style?.borderWidth ?? 0) + 'px');
+                chat.style.setProperty('--message-border-color', style ? cssColor(style.borderColor) : 'transparent');
                 renderMessages(theme, messages);
               };
               background.style.backgroundColor = theme.background.length === 9 ? cssColor(theme.background)

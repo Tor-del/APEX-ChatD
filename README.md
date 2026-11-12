@@ -28,9 +28,9 @@ Use **Refresh Twitch permissions** if you previously connected without moderatio
 
 ## Speech and controls
 
-Choose Windows voices, Edge TTS, or an OpenAI-compatible speech endpoint. Edge TTS can randomize voices across all available languages or within the selected language and keep the same assignment for each Twitch user until the session ends or you reset the assignments.
+Add voice profiles using Windows voices, Edge TTS, or an OpenAI-compatible speech endpoint. Double-click a profile or select **Edit** to open its settings. Select **Make primary** to use that profile by default. Random selection uses the profiles in the list, and assignments can be kept for each Twitch user until the session ends or you reset them.
 
-Speech settings include speed, volume, output device, audio presets, pitch, and formants. URLs are excluded from spoken messages. **Controls** lets you assign global shortcuts for pause or resume, skip, and clear queue. Use **Test message** on the Twitch tab to exercise the chat and speech pipeline without connecting a channel.
+Set speed, an audio preset, pitch, and formants on each profile. Volume and the output device apply to all profiles. URLs are excluded from spoken messages, and messages starting with `!` are skipped by default. **Controls** lets you assign global shortcuts for pause or resume, skip, and clear queue. Use **Test message** on the Twitch tab to exercise the chat and speech pipeline without connecting a channel.
 
 ## Build from source
 

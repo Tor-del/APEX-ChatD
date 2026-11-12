@@ -33,7 +33,7 @@ internal sealed class SpeechSpectralProcessor
         }
     }
 
-    public ISampleProvider Apply(ISampleProvider source, Action<Complex[]> process, CancellationToken ct)
+    public ISampleProvider Apply(ISampleProvider source, Action<Complex[]> process, CancellationToken ct, bool compensateLevel = false)
     {
         var channels = source.WaveFormat.Channels;
         var input = SpeechSampleBuffer.ReadAll(source, ct).Span;
@@ -60,6 +60,28 @@ internal sealed class SpeechSpectralProcessor
             }
         }
 
+        if (compensateLevel)
+            RestoreLevel(input, output, ct);
         return new SpeechSampleBuffer(source.WaveFormat, output);
+    }
+
+    private static void RestoreLevel(ReadOnlySpan<float> input, float[] output, CancellationToken ct)
+    {
+        double inputEnergy = 0;
+        double outputEnergy = 0;
+        float peak = 0;
+        for (var i = 0; i < output.Length; i++)
+        {
+            inputEnergy += (double)input[i] * input[i];
+            outputEnergy += (double)output[i] * output[i];
+            peak = Math.Max(peak, Math.Abs(output[i]));
+        }
+        ct.ThrowIfCancellationRequested();
+        if (outputEnergy <= 0 || inputEnergy <= outputEnergy || peak >= 0.98f) return;
+
+        // Recover up to about 6 dB without pushing the filtered signal into clipping.
+        var gain = (float)Math.Min(2, Math.Min(Math.Sqrt(inputEnergy / outputEnergy), 0.98 / peak));
+        for (var i = 0; i < output.Length; i++)
+            output[i] *= gain;
     }
 }

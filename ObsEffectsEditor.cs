@@ -7,7 +7,6 @@ namespace TwitchChatAgent;
 internal sealed class ObsEffectsEditor : StackPanel
 {
     private static readonly string[] Names = ["Хроматическая аберрация", "Глич", "Сканлинии"];
-    private readonly StackPanel list = new() { Margin = new Thickness(0, 8, 0, 0) };
     private readonly StackPanel cards = new();
     private readonly Button add = new() { HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 0, 0) };
     public ObsEffectSettings Value { get; private set; }
@@ -15,25 +14,17 @@ internal sealed class ObsEffectsEditor : StackPanel
 
     public ObsEffectsEditor(ObsEffectSettings settings)
     {
-        var legacy = settings.Items ?? (settings == new ObsEffectSettings() ? [] : Enum.GetValues<ObsPostEffect>());
-        Value = settings with { Items = legacy };
-        foreach (var kind in Enum.GetValues<ObsPostEffect>().Where(kind => !legacy.Contains(kind)))
+        var items = settings.Items ?? (settings == new ObsEffectSettings() ? [] : Enum.GetValues<ObsPostEffect>());
+        Value = settings with { Items = items };
+        foreach (var kind in Enum.GetValues<ObsPostEffect>().Where(kind => !items.Contains(kind)))
             Value = SetEnabled(Value, kind, false);
 
-        var enable = Toggle(this, "Постобработка", settings.Enabled, enabled =>
-        {
-            list.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
-            Update(Value with { Enabled = enabled });
-        });
-        enable.Margin = new Thickness(0, 10, 0, 0);
-        list.Visibility = settings.Enabled ? Visibility.Visible : Visibility.Collapsed;
-        Children.Add(list);
-        list.Children.Add(cards);
-        foreach (var kind in legacy) AddCard(kind);
+        Children.Add(cards);
+        foreach (var kind in items) AddCard(kind);
 
         add.Content = Ui.T("Добавить эффект");
-        list.Children.Add(add);
-        add.IsEnabled = legacy.Length < Names.Length;
+        Children.Add(add);
+        add.IsEnabled = items.Length < Names.Length;
         add.Click += (_, _) =>
         {
             var menu = new ContextMenu { PlacementTarget = add, Placement = PlacementMode.Bottom };

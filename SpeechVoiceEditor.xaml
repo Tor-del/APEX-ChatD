@@ -1,0 +1,118 @@
+<Window x:Class="TwitchChatAgent.SpeechVoiceEditor" x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:TwitchChatAgent"
+        Width="580" Height="874" MinWidth="450" MinHeight="430"
+        WindowStartupLocation="CenterOwner" ShowInTaskbar="False"
+        Background="{DynamicResource FluentBackdrop}" Foreground="{DynamicResource FluentText}"
+        FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="14">
+  <DockPanel Margin="20">
+    <StackPanel DockPanel.Dock="Bottom" Margin="0,12,0,0">
+      <Label Content="{local:Ui SpeechSampleText}" Target="{Binding ElementName=SpeechSample}"
+             Padding="0,0,0,6" Foreground="{DynamicResource FluentText}"/>
+      <DockPanel>
+        <Button x:Name="ListenButton" DockPanel.Dock="Right" Content="{local:Ui ListenSpeechVoice}"
+                Click="ListenVoiceClicked" Margin="8,0,0,0" VerticalAlignment="Center"/>
+        <TextBox x:Name="SpeechSample" TextWrapping="Wrap" AcceptsReturn="True" MaxHeight="76"
+                 VerticalScrollBarVisibility="Auto" AutomationProperties.Name="{local:Ui SpeechSampleText}"/>
+      </DockPanel>
+      <TextBlock x:Name="VoiceProfileStatus" TextWrapping="Wrap" Margin="0,0,0,8"/>
+      <WrapPanel HorizontalAlignment="Right">
+        <Button Content="{local:Ui SaveSpeechVoice}" Click="SaveVoiceProfileClicked" IsDefault="True"/>
+        <Button Content="{local:Ui CancelSpeechVoice}" IsCancel="True" Margin="0"/>
+      </WrapPanel>
+    </StackPanel>
+    <Border Background="{DynamicResource FluentPanel}" BorderBrush="{DynamicResource FluentPanelStroke}"
+            BorderThickness="1" CornerRadius="10">
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="18,16">
+      <TextBlock Text="{local:Ui SpeechVoiceName}" Style="{StaticResource FieldLabel}"/>
+      <TextBox x:Name="VoiceProfileName" Margin="0,0,0,10"/>
+      <TextBlock Text="{local:Ui Provider}" Style="{StaticResource FieldLabel}"/>
+      <ComboBox x:Name="Engine">
+        <ComboBoxItem Content="Edge TTS"/>
+        <ComboBoxItem Content="{local:Ui WindowsVoice}"/>
+        <ComboBoxItem Content="{local:Ui CompatibleTtsProvider}"/>
+      </ComboBox>
+      <StackPanel x:Name="WindowsVoiceOptions">
+        <TextBlock Text="{local:Ui VoiceLanguage}" Margin="0,10,0,4"/>
+        <ComboBox x:Name="WindowsLanguage" DisplayMemberPath="Name" SelectedValuePath="Code"/>
+        <TextBlock Text="{local:Ui WindowsVoice}" Margin="0,10,0,4"/>
+        <ComboBox x:Name="WindowsVoice" DisplayMemberPath="DisplayName" SelectedValuePath="Id"/>
+      </StackPanel>
+      <StackPanel x:Name="EdgeVoiceOptions" Visibility="Collapsed">
+        <TextBlock Text="{local:Ui VoiceLanguage}" Margin="0,10,0,4"/>
+        <ComboBox x:Name="EdgeLanguage" DisplayMemberPath="Name" SelectedValuePath="Code"/>
+        <TextBlock Text="{local:Ui EdgeTTSVoice}" Margin="0,10,0,4"/>
+        <ComboBox x:Name="EdgeVoice" DisplayMemberPath="FriendlyName" SelectedValuePath="ShortName"/>
+        <TextBlock x:Name="EdgeCatalogStatus" Margin="0,6,0,0" TextWrapping="Wrap"/>
+      </StackPanel>
+      <StackPanel x:Name="CompatibleTtsOptions" Visibility="Collapsed">
+        <TextBlock Text="{local:Ui TtsEndpoint}" Margin="0,10,0,4"/>
+        <TextBox x:Name="TtsEndpoint"/>
+        <TextBlock Text="{local:Ui TtsModel}" Margin="0,10,0,4"/>
+        <TextBox x:Name="TtsModel"/>
+        <TextBlock Text="{local:Ui TtsVoice}" Margin="0,10,0,4"/>
+        <TextBox x:Name="TtsVoice"/>
+        <TextBlock Text="{local:Ui TtsApiKey}" Margin="0,10,0,4"/>
+        <PasswordBox x:Name="TtsApiKey"/>
+        <TextBlock Text="{local:Ui TtsFormat}" Margin="0,10,0,4"/>
+        <ComboBox x:Name="TtsFormat">
+          <ComboBoxItem Content="MP3"/>
+          <ComboBoxItem Content="WAV"/>
+        </ComboBox>
+      </StackPanel>
+      <DockPanel Margin="0,14,0,4">
+        <TextBlock DockPanel.Dock="Left" Text="{local:Ui Speed}" Width="150" VerticalAlignment="Center"/>
+        <TextBlock DockPanel.Dock="Right" Width="48" TextAlignment="Right" VerticalAlignment="Center"
+                   Text="{Binding Value, ElementName=Rate, StringFormat={}{0:+0;-0;0}%}"/>
+        <Slider x:Name="Rate" Minimum="-50" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True"
+                IsMoveToPointEnabled="True" SmallChange="1" LargeChange="5" AutomationProperties.Name="{local:Ui Speed}"/>
+      </DockPanel>
+      <DockPanel Margin="0,8,0,4">
+        <TextBlock DockPanel.Dock="Left" Text="{local:Ui SpeechVoiceVolume}" Width="150" VerticalAlignment="Center"/>
+        <TextBlock DockPanel.Dock="Right" Width="48" TextAlignment="Right" VerticalAlignment="Center"
+                   Text="{Binding Value, ElementName=VoiceVolume, StringFormat={}{0:0}%}"/>
+        <Slider x:Name="VoiceVolume" Minimum="0" Maximum="200" TickFrequency="1" IsSnapToTickEnabled="True"
+                IsMoveToPointEnabled="True" SmallChange="1" LargeChange="5" AutomationProperties.Name="{local:Ui SpeechVoiceVolume}"/>
+      </DockPanel>
+      <TextBlock Text="{local:Ui SpeechEffect}" Margin="0,12,0,4"/>
+      <ComboBox x:Name="SpeechEffectChoice" AutomationProperties.Name="{local:Ui SpeechEffect}">
+        <ComboBoxItem Content="{local:Ui SpeechEffectNone}"/>
+        <ComboBoxItem Content="{local:Ui SpeechEffectUnderwater}"/>
+        <ComboBoxItem Content="{local:Ui SpeechEffectRadio}"/>
+        <ComboBoxItem Content="Voice Mail"/>
+        <ComboBoxItem Content="Reciver"/>
+        <ComboBoxItem Content="Underwater Shallow"/>
+        <ComboBoxItem Content="Underwater Deeper"/>
+        <ComboBoxItem Content="Club Downstairs"/>
+        <ComboBoxItem Content="Only the Twitter"/>
+      </ComboBox>
+      <DockPanel x:Name="SpeechEffectControls" Margin="0,8,0,4">
+        <TextBlock DockPanel.Dock="Left" Text="{local:Ui SpeechEffectIntensity}" Width="150" VerticalAlignment="Center"/>
+        <TextBlock DockPanel.Dock="Right" Width="48" TextAlignment="Right" VerticalAlignment="Center"
+                   Text="{Binding Value, ElementName=SpeechEffectIntensity, StringFormat={}{0:0}%}"/>
+        <Slider x:Name="SpeechEffectIntensity" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True"
+                IsMoveToPointEnabled="True" SmallChange="1" LargeChange="5"
+                AutomationProperties.Name="{local:Ui SpeechEffectIntensity}"/>
+      </DockPanel>
+      <CheckBox x:Name="SpeechRadioNoise" Content="{local:Ui SpeechRadioNoise}" Margin="0,4,0,0"/>
+      <DockPanel Margin="0,10,0,4">
+        <TextBlock DockPanel.Dock="Left" Text="{local:Ui SpeechPitch}" Width="150" VerticalAlignment="Center"/>
+        <TextBlock DockPanel.Dock="Right" Width="48" TextAlignment="Right" VerticalAlignment="Center"
+                   Text="{Binding Value, ElementName=SpeechPitch, StringFormat={}{0:+0;-0;0}}"/>
+        <Slider x:Name="SpeechPitch" Minimum="-12" Maximum="12" TickFrequency="1" IsSnapToTickEnabled="True"
+                IsMoveToPointEnabled="True" AutomationProperties.Name="{local:Ui SpeechPitch}"/>
+      </DockPanel>
+      <DockPanel Margin="0,8,0,4">
+        <TextBlock DockPanel.Dock="Left" Text="{local:Ui SpeechFormant}" Width="150" VerticalAlignment="Center"/>
+        <TextBlock DockPanel.Dock="Right" Width="48" TextAlignment="Right" VerticalAlignment="Center"
+                   Text="{Binding Value, ElementName=SpeechFormant, StringFormat={}{0:+0;-0;0}}"/>
+        <Slider x:Name="SpeechFormant" Minimum="-6" Maximum="6" TickFrequency="1" IsSnapToTickEnabled="True"
+                IsMoveToPointEnabled="True" AutomationProperties.Name="{local:Ui SpeechFormant}"/>
+      </DockPanel>
+        </StackPanel>
+      </ScrollViewer>
+    </Border>
+  </DockPanel>
+</Window>

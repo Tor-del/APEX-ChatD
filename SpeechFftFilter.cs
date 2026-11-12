@@ -57,7 +57,7 @@ internal static class SpeechFftFilter
                 spectrum[i].X *= gains[i];
                 spectrum[i].Y *= gains[i];
             }
-        }, ct);
+        }, ct, compensateLevel: effect == SpeechEffect.VoiceMail);
     }
 
     private static float[] CreateBinGains(int sampleRate, float wet, ResponseCurve curve)

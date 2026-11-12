@@ -17,12 +17,10 @@ internal sealed class ObsAnimationEditor : StackPanel
     public ObsTransition Value => profile with { Items = items.ToArray() };
     public event Action? Changed;
 
-    public ObsAnimationEditor(string label, ObsTransition profile, ObsMessageEffects fallback, bool moving = false)
+    public ObsAnimationEditor(ObsTransition profile, ObsMessageEffects fallback, bool moving = false)
     {
         this.profile = profile;
         this.moving = moving;
-        Margin = new Thickness(0, 16, 0, 4);
-        Children.Add(new TextBlock { Text = Ui.T(label), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 0, 0, 6) });
         Children.Add(cards);
         add.Content = Ui.T("Добавить эффект");
         Children.Add(add);

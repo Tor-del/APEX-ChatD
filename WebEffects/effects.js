@@ -99,10 +99,15 @@ export function createObsEffects(chat, background) {
   function update(effects, newMessage) {
     if (disposed) return;
     try {
-      const settings = effects?.enabled ? effects : {};
+      const items = effects?.items ?? [];
+      const settings = {
+        chromatic: items.includes(0) && effects.chromatic?.enabled ? effects.chromatic : null,
+        glitch: items.includes(1) && effects.glitch?.enabled ? effects.glitch : null,
+        scanlines: items.includes(2) && effects.scanlines?.enabled ? effects.scanlines : null
+      };
       const key = JSON.stringify(settings);
       if (settingsKey !== key) {
-        const nextGlitch = settings.glitch?.enabled ? settings.glitch : null;
+        const nextGlitch = settings.glitch;
         if (JSON.stringify(nextGlitch) !== JSON.stringify(glitchConfig)) {
           glitchConfig = nextGlitch;
           pulse = { until: 0, strong: false };

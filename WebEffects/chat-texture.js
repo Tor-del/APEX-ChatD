@@ -40,7 +40,8 @@ export function chatTexture(chat) {
 
   function measure(row, rect) {
     const style = getComputedStyle(row);
-    const key = [row.offsetWidth, font(style), style.color, row.firstElementChild?.style.color, row.textContent].join("|");
+    const key = [row.offsetWidth, style.padding, style.borderLeftWidth, font(style),
+      style.color, row.firstElementChild?.style.color, row.textContent].join("|");
     let entry = cache.get(row);
     if (entry?.key !== key) {
       entry = { key, runs: readRuns(row, rect) };
@@ -56,7 +57,27 @@ export function chatTexture(chat) {
       images.push({ image, x: box.left - rect.left + (box.width - width) / 2,
         y: box.top - rect.top + (box.height - height) / 2, width, height });
     }
-    return { runs: entry.runs, images, entry, height: rect.height };
+    return { runs: entry.runs, images, entry, width: rect.width, height: rect.height,
+      radius: parseFloat(style.borderTopLeftRadius) || 0, background: style.backgroundColor,
+      borderWidth: parseFloat(style.borderLeftWidth) || 0, borderColor: style.borderLeftColor };
+  }
+
+  function paintMessageBackground(ctx, { width, height, radius, background, borderWidth, borderColor }) {
+    const corner = Math.min(radius, width / 2, height / 2);
+    if (background !== "rgba(0, 0, 0, 0)") {
+      ctx.beginPath();
+      ctx.roundRect(0, 0, width, height, corner);
+      ctx.fillStyle = background;
+      ctx.fill();
+    }
+    if (borderWidth > 0) {
+      const inset = borderWidth / 2;
+      ctx.beginPath();
+      ctx.roundRect(inset, inset, width - borderWidth, height - borderWidth, Math.max(0, corner - inset));
+      ctx.lineWidth = borderWidth;
+      ctx.strokeStyle = borderColor;
+      ctx.stroke();
+    }
   }
 
   function paintContent(ctx, content) {
@@ -133,10 +154,11 @@ export function chatTexture(chat) {
     ctx.globalAlpha = position.opacity;
     ctx.translate(position.x, position.y);
     ctx.scale(position.scale, position.scale);
+    if (position.scatter > 0) ctx.globalAlpha *= 1 - position.scatter ** 2;
+    paintMessageBackground(ctx, content);
     if (position.scatter > 0 && position.particles) {
       const { particleSpread } = position.particles;
       const fragments = fragmentTexture(ctx, content, position.particles);
-      ctx.globalAlpha *= 1 - position.scatter ** 2;
       if (fragments) {
         const distance = position.scatter * particleSpread;
         for (const { x, y, w, h, vx, vy } of fragments.tiles)
@@ -151,7 +173,7 @@ export function chatTexture(chat) {
   }
 
   function moveProfile(bounds) {
-    return transitions(motion.animateMove === false ? 0 : 1, motion.movement,
+    return transitions(0, motion.movement,
       motion.moveDurationMs ?? 280, 0, bounds, motion.moveCurve).find(effect => effect.kind === 0);
   }
 
@@ -161,7 +183,9 @@ export function chatTexture(chat) {
     const duration = Math.max(100, Math.min(2000, theme.messageTransitionMs ?? 280));
     const direction = theme.newestAtTop ? 1 : -1;
 
-    if (!theme.animateMessages) {
+    const hasEffects = [motion.entrance, motion.departure, motion.movement]
+      .some(profile => profile?.items?.some(item => item.enabled));
+    if (!hasEffects) {
       messages.clear();
       render();
       return;
@@ -188,7 +212,7 @@ export function chatTexture(chat) {
       const previous = existing?.position(now);
       const message = new CanvasMessage(target(bounds));
       const distance = -direction * (bounds.height + (parseFloat(getComputedStyle(row).marginTop) || 0));
-      const profile = transitions(1 << (motion.enter ?? 0), motion.entrance, duration, distance, bounds);
+      const profile = transitions(0, motion.entrance, duration, distance, bounds);
       message.enter(profile, now, existing?.state === "removed" ? null : previous);
       messages.set(id, message);
     }
@@ -197,7 +221,7 @@ export function chatTexture(chat) {
       const message = messages.get(id);
       const position = message.position(now);
       const distance = direction < 0 ? -position.y - bounds.height : window.innerHeight - position.y;
-      const profile = transitions(1 << (motion.exit ?? 2), motion.departure, duration, distance, bounds);
+      const profile = transitions(0, motion.departure, duration, distance, bounds);
       if (profile.length) message.exit(profile, now, content);
       else messages.delete(id);
     }
@@ -232,9 +256,8 @@ export function chatTexture(chat) {
 
     ctx.save();
     const rect = chat.getBoundingClientRect();
-    const style = getComputedStyle(chat);
     ctx.beginPath();
-    ctx.roundRect(rect.left, rect.top, rect.width, rect.height, parseFloat(style.borderTopLeftRadius) || 0);
+    ctx.rect(rect.left, rect.top, rect.width, rect.height);
     ctx.clip();
     for (const row of rows) if (!row.moving) drawRow(ctx, row.content, row.position);
     ctx.restore();
