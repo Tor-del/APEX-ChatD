@@ -1,17 +1,16 @@
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 using NAudio.CoreAudioApi;
-using ScreenReader.Edge;
+using PluginSpeech = ApexChatd.Plugins.SpeechProvider;
 using ScreenReader.Speech;
 using Windows.Media.SpeechSynthesis;
 
 namespace TwitchChatAgent;
 
-internal sealed class SpeechQueue(Action<string> status)
+internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Action<string> status)
 {
     private readonly Queue<ChatMessage> pending = new();
     private readonly Dictionary<string, Guid> pinnedVoices = new(StringComparer.OrdinalIgnoreCase);
-    private readonly EdgeSpeechClient edge = new();
     private static readonly HttpClient compatibleHttp = new(new SocketsHttpHandler
     {
         AllowAutoRedirect = false,
@@ -30,7 +29,7 @@ internal sealed class SpeechQueue(Action<string> status)
     public int Count => pending.Count;
     public bool Paused => paused;
 
-    public Task<IReadOnlyList<SpeechVoice>> GetEdgeVoicesAsync(CancellationToken ct) => edge.GetVoicesAsync(ct);
+    public bool IsVoiceAvailable(SpeechVoiceProfile profile) => profile.ExtensionProviderId is not { } id || findProvider(id) is not null;
 
     public async Task PreviewAsync(string text, SpeechVoiceProfile profile, CancellationToken ct)
     {
@@ -74,9 +73,9 @@ internal sealed class SpeechQueue(Action<string> status)
 
     public void Configure(Settings settings)
     {
-        options = settings with { };
+        options = settings with { SpeechVoices = settings.SpeechVoices.Where(IsVoiceAvailable).ToArray() };
         lastError = null;
-        enabled = settings.Speech && settings.SpeechVoices.Length > 0;
+        enabled = settings.Speech && options.SpeechVoices.Length > 0;
         if (!enabled)
         {
             pending.Clear();
@@ -225,20 +224,25 @@ internal sealed class SpeechQueue(Action<string> status)
     {
         using var bytes = new MemoryStream();
         var format = SpeechAudioFormat.Wave;
-        if (profile.Provider == SpeechProvider.Compatible)
+        if (profile.ExtensionProviderId is { } id)
+        {
+            var provider = findProvider(id) ?? throw new InvalidOperationException(Ui.T("Провайдер недоступен."));
+            var request = new ApexChatd.Plugins.SpeechRequest(text, profile.Voice, profile.Language, profile.Rate, profile.ProviderOptions);
+            var result = await provider.SynthesizeAsync(request, bytes, ct);
+            format = result switch
+            {
+                ApexChatd.Plugins.AudioFormat.Wave => SpeechAudioFormat.Wave,
+                ApexChatd.Plugins.AudioFormat.Mp3 => SpeechAudioFormat.Mp3,
+                _ => throw new InvalidDataException("Unsupported plugin audio format.")
+            };
+        }
+        else if (profile.Provider == SpeechProvider.Compatible)
         {
             using var client = new OpenAiSpeechClient(
                 new(profile.Endpoint, profile.Model, profile.ReadApiKey(), profile.Format), compatibleHttp);
             format = client.AudioFormat;
             var request = new SpeechRequest(text, profile.Voice, "", profile.Rate);
             await foreach (var chunk in client.StreamAsync(request, ct))
-                await bytes.WriteAsync(chunk, ct);
-        }
-        else if (profile.Provider == SpeechProvider.Edge)
-        {
-            format = ((ISpeechProvider)edge).AudioFormat;
-            var request = new SpeechRequest(text, profile.Voice, profile.Language, profile.Rate);
-            await foreach (var chunk in edge.StreamAsync(request, ct))
                 await bytes.WriteAsync(chunk, ct);
         }
         else

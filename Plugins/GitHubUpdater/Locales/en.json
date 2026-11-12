@@ -1,0 +1,30 @@
+{
+  "strings": {
+    "Обновления": "Updates",
+    "Автоматически проверять обновления": "Automatically check for updates",
+    "Проверить обновления": "Check for updates",
+    "Откатиться к предыдущей версии": "Roll back to the previous version",
+    "Обновление APEX Chatd": "APEX Chatd update",
+    "Доступна версия APEX Chatd {0}.": "APEX Chatd {0} is available.",
+    "После установки приложение запустится автоматически.": "The app will restart automatically after installation.",
+    "Установщик можно загрузить со страницы релиза.": "You can download the installer from the release page.",
+    "Установить": "Install",
+    "Открыть релиз": "Open release",
+    "Напомнить позже": "Remind me later",
+    "Больше не напоминать": "Skip this version",
+    "Проверяем обновления…": "Checking for updates…",
+    "Установлена актуальная версия.": "You have the latest version.",
+    "Загружаем обновление… {0}%": "Downloading update… {0}%",
+    "Не удалось обновить APEX Chatd: {0}": "Could not update APEX Chatd: {0}",
+    "Не удалось проверить обновления: {0}": "Could not check for updates: {0}",
+    "В релизе нет установщика с проверяемой контрольной суммой.": "The release does not contain an installer with a verifiable checksum.",
+    "Не удалось проверить загруженный установщик.": "Could not verify the downloaded installer.",
+    "Не удалось запустить установщик.": "Could not start the installer.",
+    "Откат APEX Chatd": "Roll back APEX Chatd",
+    "Вернуться к версии {0}? После установки приложение перезапустится.": "Return to version {0}? The app will restart after installation.",
+    "Предыдущая версия больше недоступна на GitHub.": "The previous version is no longer available on GitHub.",
+    "Не удалось выполнить откат: {0}": "Could not roll back: {0}",
+    "Версия {0}": "Version {0}",
+    "Не удалось сохранить настройки: {0}": "Could not save settings: {0}"
+  }
+}

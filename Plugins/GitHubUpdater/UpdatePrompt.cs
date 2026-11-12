@@ -1,7 +1,9 @@
 using System.Windows;
 using System.Windows.Controls;
 
-namespace TwitchChatAgent;
+using ApexChatd.Plugins;
+
+namespace ApexChatd.GitHubUpdates;
 
 internal enum UpdateDecision { Later, Install, Ignore }
 
@@ -9,8 +11,9 @@ internal sealed class UpdatePrompt : Window
 {
     public UpdateDecision Decision { get; private set; }
 
-    public UpdatePrompt(Window owner, Version version, bool canInstall)
+    public UpdatePrompt(IPluginContext context, Version version, bool canInstall)
     {
+        var owner = context.MainWindow;
         var hasOwner = owner.IsVisible && owner.WindowState != WindowState.Minimized;
         if (hasOwner) Owner = owner;
         else Topmost = true;
@@ -21,7 +24,7 @@ internal sealed class UpdatePrompt : Window
         WindowStartupLocation = hasOwner ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen;
         SetResourceReference(BackgroundProperty, "FluentPanel");
         SetResourceReference(ForegroundProperty, "FluentText");
-        SourceInitialized += (_, _) => ((App)Application.Current).Themes.ApplyTitleBar(this);
+        SourceInitialized += (_, _) => context.ApplyWindowTheme(this);
 
         var layout = new StackPanel { Margin = new Thickness(24) };
         layout.Children.Add(new TextBlock { Text = Ui.F("Доступна версия APEX Chatd {0}.", version.ToString(3)),

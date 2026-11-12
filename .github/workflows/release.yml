@@ -16,6 +16,8 @@ jobs:
     uses: ./.github/workflows/ci.yml
     with:
       release-tag: ${{ github.ref_name }}
+    secrets:
+      APEXCHATD_PLUGIN_SIGNING_KEY: ${{ secrets.APEXCHATD_PLUGIN_SIGNING_KEY }}
   publish:
     needs: build
     runs-on: ubuntu-latest
@@ -25,11 +27,19 @@ jobs:
     steps:
       - uses: actions/download-artifact@v6
         with:
-          name: APEX-ChatD-win-x64
+          pattern: APEX-ChatD-win-x64-*
           path: release
+          merge-multiple: true
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" release/*.exe --verify-tag --title "APEX ChatD $RELEASE_TAG" --generate-notes
+        run: |
+          version="${RELEASE_TAG#v}.0"
+          with_edge="release/APEX-Chatd-Setup-${version}-edge-tts-x64.exe"
+          without_edge="release/APEX-Chatd-Setup-${version}-x64.exe"
+          test -f "$with_edge"
+          test -f "$without_edge"
+          gh release create "$RELEASE_TAG" "$with_edge#Windows x64 with Edge TTS" \
+            "$without_edge#Windows x64 without Edge TTS" --verify-tag --title "APEX ChatD $RELEASE_TAG" --generate-notes

@@ -11,6 +11,12 @@ internal sealed record SpeechVoiceProfile
     public Guid Id { get; init; } = Guid.NewGuid();
     public string Name { get; init; } = "";
     public SpeechProvider Provider { get; init; }
+    public string? PluginProviderId { get; init; }
+    public string ProviderOptions { get; init; } = "";
+    public const string EdgeProviderId = "apexchatd.edge-tts/edge";
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? ExtensionProviderId => PluginProviderId ?? (Provider == SpeechProvider.Edge ? EdgeProviderId : null);
     public string Voice { get; init; } = "";
     public string Language { get; init; } = "";
     public string Endpoint { get; init; } = "http://127.0.0.1:5050/v1/audio/speech";

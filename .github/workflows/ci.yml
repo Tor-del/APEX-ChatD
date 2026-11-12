@@ -10,6 +10,9 @@ on:
       release-tag:
         type: string
         default: ''
+    secrets:
+      APEXCHATD_PLUGIN_SIGNING_KEY:
+        required: true
 
 permissions:
   contents: read
@@ -18,6 +21,10 @@ jobs:
   build:
     runs-on: windows-2025
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        edge: [with-edge-tts, without-edge-tts]
     env:
       DOTNET_NOLOGO: 'true'
       DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
@@ -40,13 +47,42 @@ jobs:
               throw "Release tag must match v$version from TwitchChatAgent.csproj"
             }
           }
-      - name: Build x64 installer
+      - name: Download the latest Edge TTS release
+        if: matrix.edge == 'with-edge-tts'
         shell: pwsh
-        run: ./installer/build.ps1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $zip = Join-Path $env:RUNNER_TEMP 'APEX-ChatD-Plugin-EdgeTTS.zip'
+          gh release download --repo Tor-del/APEX-ChatD-Plugin-EdgeTTS --pattern APEX-ChatD-Plugin-EdgeTTS.zip --output $zip
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "EDGE_PLUGIN_ZIP=$zip" >> $env:GITHUB_ENV
+      - name: Build x64 installer
+        if: inputs.release-tag == ''
+        shell: pwsh
+        run: ./installer/build.ps1 -EdgePluginZip $env:EDGE_PLUGIN_ZIP
+      - name: Build x64 release installer and sign GitHub Updater
+        if: inputs.release-tag != ''
+        shell: pwsh
+        env:
+          APEXCHATD_PLUGIN_SIGNING_KEY: ${{ secrets.APEXCHATD_PLUGIN_SIGNING_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:APEXCHATD_PLUGIN_SIGNING_KEY)) {
+            throw 'The repository secret APEXCHATD_PLUGIN_SIGNING_KEY is required for release builds.'
+          }
+          $keyPath = Join-Path $env:RUNNER_TEMP ("apexchatd-signing-" + [Guid]::NewGuid().ToString('N') + ".pem")
+          try {
+            [IO.File]::WriteAllText($keyPath, $env:APEXCHATD_PLUGIN_SIGNING_KEY)
+            Remove-Item Env:APEXCHATD_PLUGIN_SIGNING_KEY
+            ./installer/build.ps1 -PluginSigningKey $keyPath -EdgePluginZip $env:EDGE_PLUGIN_ZIP
+            exit $LASTEXITCODE
+          } finally {
+            [IO.File]::Delete($keyPath)
+          }
       - name: Upload installer
         uses: actions/upload-artifact@v6
         with:
-          name: APEX-ChatD-win-x64
+          name: APEX-ChatD-win-x64-${{ matrix.edge }}
           path: bin/Setup/APEX-Chatd-Setup-*-x64.exe
           if-no-files-found: error
           retention-days: 14

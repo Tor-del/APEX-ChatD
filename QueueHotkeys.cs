@@ -48,13 +48,13 @@ internal sealed class QueueHotkeys : IDisposable
     private readonly Dispatcher worker;
     private readonly HwndSource source;
     private readonly MouseProc mouseProc;
-    private readonly Dictionary<QueueAction, QueueShortcut> registered = new();
+    private readonly Dictionary<int, QueueShortcut> registered = new();
     private readonly HashSet<uint> consumedMouse = new();
     private IntPtr mouseHook;
     private bool suspended;
     private bool disposed;
-    private QueueBindings bindings = new();
-    public event Action<QueueAction>? Triggered;
+    private IReadOnlyDictionary<int, QueueShortcut> bindings = new Dictionary<int, QueueShortcut>();
+    public event Action<int>? Triggered;
 
     public QueueHotkeys()
     {
@@ -79,7 +79,7 @@ internal sealed class QueueHotkeys : IDisposable
         (worker, source) = ready.Task.GetAwaiter().GetResult();
     }
 
-    public string[] Configure(QueueBindings value) => worker.Invoke(() =>
+    public string[] Configure(IReadOnlyDictionary<int, QueueShortcut> value) => worker.Invoke(() =>
     {
         bindings = value;
         return Apply();
@@ -93,16 +93,16 @@ internal sealed class QueueHotkeys : IDisposable
         return Apply();
     });
 
-    public void Validate(QueueAction action, QueueShortcut shortcut) => worker.Invoke(() =>
+    public void Validate(int action, QueueShortcut shortcut) => worker.Invoke(() =>
     {
         if (!IsValid(shortcut))
             throw new ArgumentException(Ui.T("Эта клавиша зарезервирована или не подходит для сочетания."));
-        if (Enum.GetValues<QueueAction>().Any(other => other != action && bindings.Get(other) == shortcut))
+        if (bindings.Any(other => other.Key != action && other.Value == shortcut))
             throw new ArgumentException(Ui.T("Это сочетание уже назначено другой команде."));
         if (shortcut.IsMouse || registered.GetValueOrDefault(action) == shortcut)
             return;
 
-        const int probeId = 10;
+        const int probeId = 0;
         if (!RegisterHotKey(source.Handle, probeId, shortcut.Modifiers | 0x4000, shortcut.Key))
             throw new InvalidOperationException(Busy(shortcut));
         UnregisterHotKey(source.Handle, probeId);
@@ -120,10 +120,8 @@ internal sealed class QueueHotkeys : IDisposable
             return [];
 
         var errors = new List<string>();
-        foreach (var action in Enum.GetValues<QueueAction>())
+        foreach (var (action, key) in bindings)
         {
-            if (bindings.Get(action) is not { } key)
-                continue;
             if (!IsValid(key) || registered.ContainsValue(key))
             {
                 errors.Add(Busy(key));
@@ -139,7 +137,7 @@ internal sealed class QueueHotkeys : IDisposable
                     continue;
                 }
             }
-            else if (!RegisterHotKey(source.Handle, (int)action, key.Modifiers | 0x4000, key.Key))
+            else if (!RegisterHotKey(source.Handle, action, key.Modifiers | 0x4000, key.Key))
             {
                 errors.Add(Busy(key));
                 continue;
@@ -153,7 +151,7 @@ internal sealed class QueueHotkeys : IDisposable
     {
         foreach (var (action, key) in registered)
             if (!key.IsMouse)
-                UnregisterHotKey(source.Handle, (int)action);
+                UnregisterHotKey(source.Handle, action);
         registered.Clear();
         consumedMouse.Clear();
         if (mouseHook != IntPtr.Zero)
@@ -165,7 +163,7 @@ internal sealed class QueueHotkeys : IDisposable
     {
         if (message != 0x0312)
             return IntPtr.Zero;
-        var action = (QueueAction)wParam.ToInt32();
+        var action = wParam.ToInt32();
         if (registered.TryGetValue(action, out var shortcut) && !shortcut.IsMouse)
         {
             handled = true;
@@ -210,7 +208,7 @@ internal sealed class QueueHotkeys : IDisposable
         return CallNextHookEx(mouseHook, code, message, data);
     }
 
-    private void Dispatch(QueueAction action) => ui.BeginInvoke(new Action(() =>
+    private void Dispatch(int action) => ui.BeginInvoke(new Action(() =>
     {
         if (!disposed)
             Triggered?.Invoke(action);

@@ -1,7 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
-using ScreenReader.Speech;
+using PluginSpeech = ApexChatd.Plugins.SpeechProvider;
 
 namespace TwitchChatAgent;
 
@@ -9,10 +9,9 @@ public partial class MainWindow
 {
     private sealed record VoiceListItem(SpeechVoiceProfile Profile, string Label);
 
-    private readonly CancellationTokenSource voiceCatalogLifetime = new();
-    private Task<IReadOnlyList<SpeechVoice>>? edgeCatalogTask;
-
-    private bool HasMissingSpeechVoice => settings.Speech && settings.SpeechVoices.Length == 0;
+    private PluginSpeech? EdgeProvider => plugins?.Providers.GetValueOrDefault(SpeechVoiceProfile.EdgeProviderId);
+    private bool IsVoiceAvailable(SpeechVoiceProfile profile) => speech.IsVoiceAvailable(profile);
+    private bool HasMissingSpeechVoice => settings.Speech && !settings.SpeechVoices.Any(IsVoiceAvailable);
 
     private void UpdateMissingSpeechVoiceWarning()
     {
@@ -24,14 +23,20 @@ public partial class MainWindow
 
     private void AddRandomEdgeVoiceClicked(object sender, RoutedEventArgs e)
     {
-        if (!HasMissingSpeechVoice) return;
-        var voices = EdgeVoiceCatalog.Defaults.Where(voice => voice.Locale == EdgeVoiceCatalog.InterfaceLocale).ToArray();
+        if (!HasMissingSpeechVoice || EdgeProvider is not { } edge) return;
+        var locale = Ui.LanguageFamily == "en" ? "en-US" : Ui.LanguageFamily;
+        var voices = edge.DefaultVoices.Where(voice => voice.Language == locale ||
+            voice.Language.StartsWith(locale + "-", StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (voices.Length == 0)
+            voices = edge.DefaultVoices.Where(voice => voice.Language == "en-US").ToArray();
+        if (voices.Length == 0) return;
         var voice = voices[Random.Shared.Next(voices.Length)];
         var profile = new SpeechVoiceProfile
         {
-            Name = voice.FriendlyName, Provider = SpeechProvider.Edge, Voice = voice.ShortName, Language = voice.Locale
+            Name = voice.Name, Provider = SpeechProvider.Edge, PluginProviderId = SpeechVoiceProfile.EdgeProviderId, Voice = voice.Id, Language = voice.Language
         };
-        settings.SpeechVoices = [profile];
+        settings.SpeechVoices = [.. settings.SpeechVoices, profile];
+        settings.PrimarySpeechVoiceId = profile.Id;
         RefreshVoiceProfiles(profile.Id);
         UpdateSpeechSettings();
     }
@@ -42,8 +47,9 @@ public partial class MainWindow
         if (!voices.Any(voice => voice.Id == settings.PrimarySpeechVoiceId))
             settings.PrimarySpeechVoiceId = voices.FirstOrDefault()?.Id;
 
-        var items = voices.Select(voice => new VoiceListItem(voice, voice.Id == settings.PrimarySpeechVoiceId
-            ? Ui.F("{0} · Основной", voice.Name) : voice.Name)).ToArray();
+        var items = voices.Select(voice => new VoiceListItem(voice, !IsVoiceAvailable(voice)
+            ? string.Format(P("{0} · Провайдер недоступен", "{0} · Provider unavailable"), voice.Name)
+            : voice.Id == settings.PrimarySpeechVoiceId ? Ui.F("{0} · Основной", voice.Name) : voice.Name)).ToArray();
         VoiceProfilesList.ItemsSource = items;
         VoiceProfilesList.SelectedItem = items.FirstOrDefault(item => item.Profile.Id == selected);
         UpdateVoiceProfileButtons();
@@ -64,7 +70,7 @@ public partial class MainWindow
     {
         var selected = VoiceProfilesList.SelectedItem as VoiceListItem;
         EditVoiceProfileButton.IsEnabled = RemoveVoiceProfile.IsEnabled = selected is not null;
-        MakePrimaryVoiceButton.IsEnabled = selected is not null && selected.Profile.Id != settings.PrimarySpeechVoiceId;
+        MakePrimaryVoiceButton.IsEnabled = selected is not null && IsVoiceAvailable(selected.Profile) && selected.Profile.Id != settings.PrimarySpeechVoiceId;
     }
 
     private void VoiceProfileDoubleClicked(object sender, MouseButtonEventArgs e)
@@ -95,8 +101,8 @@ public partial class MainWindow
 
     private void OpenVoiceEditor(SpeechVoiceProfile? existing = null)
     {
-        var editor = new SpeechVoiceEditor(this, existing ?? new() { Provider = SpeechProvider.Edge },
-            existing is null, GetProfileEdgeVoicesAsync, speech.PreviewAsync);
+        var editor = new SpeechVoiceEditor(this, existing ?? new() { PluginProviderId = EdgeProvider is null ? null : SpeechVoiceProfile.EdgeProviderId },
+            existing is null, plugins?.Providers ?? new Dictionary<string, PluginSpeech>(), speech.PreviewAsync);
         if (editor.ShowDialog() != true || editor.Result is not { } profile)
             return;
 
@@ -115,17 +121,4 @@ public partial class MainWindow
         UpdateSpeechSettings();
     }
 
-    private Task<IReadOnlyList<SpeechVoice>> GetProfileEdgeVoicesAsync()
-    {
-        if (edgeCatalogTask is null || edgeCatalogTask.IsFaulted || edgeCatalogTask.IsCanceled)
-            edgeCatalogTask = LoadAsync();
-        return edgeCatalogTask;
-
-        async Task<IReadOnlyList<SpeechVoice>> LoadAsync()
-        {
-            var voices = await speech.GetEdgeVoicesAsync(voiceCatalogLifetime.Token);
-            if (voices.Count == 0) throw new InvalidOperationException(Ui.T("Каталог голосов пуст."));
-            return voices;
-        }
-    }
 }

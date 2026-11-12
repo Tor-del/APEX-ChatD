@@ -1,0 +1,10 @@
+{
+  "id": "apexchatd.github-updater",
+  "name": "GitHub Updater",
+  "version": "1.2.0",
+  "entryAssembly": "ApexChatd.GitHubUpdater.dll",
+  "entryType": "ApexChatd.GitHubUpdates.UpdaterPlugin",
+  "tabIcon": "\uE72C",
+  "minApiVersion": "1.2.0",
+  "maxApiVersionExclusive": "2.0.0"
+}

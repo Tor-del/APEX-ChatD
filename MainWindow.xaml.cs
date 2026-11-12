@@ -38,11 +38,6 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer overlayExpiryTimer = new();
     private readonly DispatcherTimer placementTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private readonly DispatcherTimer liveTimer = new() { Interval = TimeSpan.FromSeconds(20) };
-    private readonly DispatcherTimer updateTimer = new();
-    private readonly CancellationTokenSource updateLifetime = new();
-    private readonly GitHubUpdater updater = new();
-    private bool checkingUpdates;
-
     private bool closePromptOpen;
     private int tests;
 
@@ -61,6 +56,10 @@ public partial class MainWindow : Window
 
         Ui.Language = settings.Language;
         InitializeComponent();
+        PluginsTab.Header = P("Плагины", "Plugins");
+        SetPluginAction(AddPluginButton, "\uE710", P("Добавить плагин", "Add plugin"));
+        SetPluginAction(OpenPluginFolderButton, "\uE838", P("Открыть папку", "Open folder"));
+        SetPluginAction(RestartForPluginsButton, "\uE72C", P("Перезапустить", "Restart app"));
         if (loadError is not null)
             TwitchStatus.Text = Ui.F("Не удалось загрузить настройки: {0}", loadError);
 
@@ -77,16 +76,16 @@ public partial class MainWindow : Window
             trayIcon = new System.Drawing.Icon(sourceIcon, 32, 32);
         tray = new Forms.NotifyIcon
         {
-            Text = "APEX Chatd",
+            Text = "APEX ChatD",
             Icon = trayIcon,
             ContextMenuStrip = menu,
             Visible = true
         };
         tray.DoubleClick += (_, _) => ShowSettings();
-        speech = new SpeechQueue(value =>
+        speech = new SpeechQueue(id => plugins?.Providers.GetValueOrDefault(id), value =>
         {
             SpeechStatus.Text = value;
-            PauseQueueButton.IsEnabled = settings.Speech && settings.SpeechVoices.Length > 0;
+            PauseQueueButton.IsEnabled = settings.Speech && settings.SpeechVoices.Any(IsVoiceAvailable);
             PauseQueueIcon.Text = speech!.Paused ? "\uE768" : "\uE769";
             PauseQueueLabel.Text = speech.Paused ? Ui.T("Продолжить") : Ui.T("Пауза");
             trayQueue.Text = Ui.F("В очереди: {0}", speech!.Count) + (speech.Paused ? Ui.T(" · Пауза") : "");
@@ -96,16 +95,12 @@ public partial class MainWindow : Window
         themes.Apply(settings.Theme);
         SourceInitialized += (_, _) => themes.ApplyTitleBar(this);
         AppThemeChoice.SelectedIndex = (int)themes.Theme;
-        LanguageChoice.SelectedIndex = Ui.Language == "en" ? 1 : 0;
+        var languages = Ui.Languages;
+        HeaderLanguageChoice.ItemsSource = languages;
+        LanguageChoice.ItemsSource = languages;
+        SelectLanguage(Ui.Language);
         var version = typeof(App).Assembly.GetName().Version?.ToString(3) ?? "";
         VersionLabel.Text = Ui.F("Версия {0}", version);
-        AutoCheckUpdates.IsChecked = settings.AutoCheckUpdates;
-        try
-        {
-            RollbackButton.Visibility = GitHubUpdater.FindPreviousVersion(GitHubUpdater.FindInstallation()) is null
-                ? Visibility.Collapsed : Visibility.Visible;
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
         try
         {
             StartWithWindows.IsChecked = StartupRegistration.IsEnabled();
@@ -202,31 +197,21 @@ public partial class MainWindow : Window
                 UpdateStartupRegistration();
         });
         OnToggle(MinimizeToTray, () => UpdateAppSettings(StartupStatus));
-        OnToggle(AutoCheckUpdates, () =>
-        {
-            settings.AutoCheckUpdates = AutoCheckUpdates.IsChecked == true;
-            SaveSettings(UpdateStatus);
-            ScheduleUpdateChecks();
-        });
         StateChanged += (_, _) => HideMinimizedWindow();
         AppThemeChoice.SelectionChanged += (_, _) => UpdateAppSettings(ThemeStatus);
-        LanguageChoice.SelectionChanged += async (_, _) => await UpdateLanguageAsync();
+        LanguageChoice.SelectionChanged += async (_, _) => await UpdateLanguageAsync(LanguageChoice.SelectedItem as Ui.LanguageChoice);
+        HeaderLanguageChoice.SelectionChanged += async (_, _) => await UpdateLanguageAsync(HeaderLanguageChoice.SelectedItem as Ui.LanguageChoice);
         overlayExpiryTimer.Tick += (_, _) => RenderOverlay();
         placementTimer.Tick += (_, _) => SaveOverlayPosition();
         liveTimer.Tick += async (_, _) => await RefreshLiveAsync();
-        updateTimer.Tick += async (_, _) =>
-        {
-            updateTimer.Interval = TimeSpan.FromHours(4);
-            await CheckForUpdatesAsync(manual: false);
-        };
         UpdateOverlayStatus();
         RefreshModeration();
         UpdateShortcutFields();
         try
         {
             hotkeys = new QueueHotkeys();
-            hotkeys.Triggered += OnQueueAction;
-            HotkeyStatus.Text = string.Join(Environment.NewLine, hotkeys.Configure(settings.SpeechHotkeys));
+            hotkeys.Triggered += OnShortcutTriggered;
+            ConfigureHotkeys();
         }
         catch (Exception ex)
         {
@@ -254,7 +239,8 @@ public partial class MainWindow : Window
 
     internal async Task StartAsync()
     {
-        ScheduleUpdateChecks();
+        await StartPluginsAsync();
+        if (exiting) return;
         if (HasMissingSpeechVoice)
             tray.ShowBalloonTip(5000, Ui.XamlText("Speech"), Ui.XamlText("MissingSpeechVoices"), Forms.ToolTipIcon.Warning);
         ApplyOverlay();
@@ -269,143 +255,6 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             TwitchStatus.Text = Ui.F("Не удалось восстановить подключение: {0}", ex.Message);
-        }
-    }
-
-    private void ScheduleUpdateChecks()
-    {
-        updateTimer.Stop();
-        if (!settings.AutoCheckUpdates || exiting) return;
-        updateTimer.Interval = TimeSpan.FromSeconds(5);
-        updateTimer.Start();
-    }
-
-    private async void CheckUpdatesClicked(object sender, RoutedEventArgs e) => await CheckForUpdatesAsync(manual: true);
-
-    private async Task CheckForUpdatesAsync(bool manual)
-    {
-        if (checkingUpdates || exiting) return;
-        checkingUpdates = true;
-        CheckUpdatesButton.IsEnabled = false;
-        RollbackButton.IsEnabled = false;
-        var installing = false;
-        var ct = updateLifetime.Token;
-        try
-        {
-            if (manual) UpdateStatus.Text = Ui.T("Проверяем обновления…");
-            var release = await updater.CheckAsync(GitHubUpdater.CurrentVersion, ct);
-            if (exiting || (!manual && !settings.AutoCheckUpdates)) return;
-            if (release is null)
-            {
-                UpdateStatus.Text = manual ? Ui.T("Установлена актуальная версия.") : "";
-                return;
-            }
-
-            var version = release.Version.ToString(3);
-            if (!manual && (settings.IgnoredUpdateVersion == version ||
-                settings.DeferredUpdateVersion == version && settings.UpdateReminderAfter > DateTimeOffset.UtcNow))
-                return;
-            var installDirectory = GitHubUpdater.FindInstallation();
-            var prompt = new UpdatePrompt(this, release.Version, installDirectory is not null);
-            UpdateStatus.Text = Ui.F("Доступна версия APEX Chatd {0}.", version);
-            prompt.ShowDialog();
-            if (exiting) return;
-            switch (prompt.Decision)
-            {
-                case UpdateDecision.Ignore:
-                    settings.IgnoredUpdateVersion = version;
-                    SaveSettings(UpdateStatus);
-                    return;
-                case UpdateDecision.Later:
-                    settings.DeferredUpdateVersion = version;
-                    settings.UpdateReminderAfter = DateTimeOffset.UtcNow.AddDays(1);
-                    SaveSettings(UpdateStatus);
-                    return;
-            }
-            if (installDirectory is null)
-            {
-                Process.Start(new ProcessStartInfo(release.Page.AbsoluteUri) { UseShellExecute = true });
-                return;
-            }
-
-            installing = true;
-            var installer = await DownloadInstallerAsync(release, ct);
-            ct.ThrowIfCancellationRequested();
-            GitHubUpdater.LaunchInstaller(installer, installDirectory);
-            await ExitAsync();
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
-        catch (Exception ex) when (!exiting)
-        {
-            UpdateStatus.Text = Ui.F(installing ? "Не удалось обновить APEX Chatd: {0}" : "Не удалось проверить обновления: {0}", ex.Message);
-            if (installing)
-                MessageBox.Show(UpdateStatus.Text, Ui.T("Обновление APEX Chatd"), MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        finally
-        {
-            checkingUpdates = false;
-            if (!exiting) CheckUpdatesButton.IsEnabled = RollbackButton.IsEnabled = true;
-        }
-    }
-
-    private Task<string> DownloadInstallerAsync(GitHubUpdater.Release release, CancellationToken ct)
-    {
-        UpdateStatus.Text = Ui.F("Загружаем обновление… {0}%", 0);
-        if (!IsVisible || WindowState == WindowState.Minimized)
-            tray.ShowBalloonTip(5000, Ui.T("Обновление APEX Chatd"), UpdateStatus.Text, Forms.ToolTipIcon.Info);
-        return updater.DownloadAsync(release, new Progress<int>(percent =>
-        {
-            if (!exiting) UpdateStatus.Text = Ui.F("Загружаем обновление… {0}%", percent);
-        }), ct);
-    }
-
-    private async void RollbackClicked(object sender, RoutedEventArgs e)
-    {
-        if (checkingUpdates || exiting) return;
-        checkingUpdates = true;
-        CheckUpdatesButton.IsEnabled = RollbackButton.IsEnabled = false;
-        var ct = updateLifetime.Token;
-        try
-        {
-            var directory = GitHubUpdater.FindInstallation();
-            var previous = GitHubUpdater.FindPreviousVersion(directory);
-            if (directory is null || previous is null)
-            {
-                RollbackButton.Visibility = Visibility.Collapsed;
-                return;
-            }
-            if (MessageBox.Show(this, Ui.F("Вернуться к версии {0}? После установки приложение перезапустится.", previous.ToString(3)),
-                Ui.T("Откат APEX Chatd"), MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes)
-                return;
-
-            var release = await updater.FindRollbackAsync(previous, ct)
-                ?? throw new InvalidOperationException(Ui.T("Предыдущая версия больше недоступна на GitHub."));
-            var installer = await DownloadInstallerAsync(release, ct);
-            ct.ThrowIfCancellationRequested();
-            var ignored = settings.IgnoredUpdateVersion;
-            settings.IgnoredUpdateVersion = GitHubUpdater.CurrentVersion.ToString(3);
-            try
-            {
-                settings.Save();
-                GitHubUpdater.LaunchInstaller(installer, directory);
-            }
-            catch
-            {
-                settings.IgnoredUpdateVersion = ignored;
-                SaveSettings(UpdateStatus);
-                throw;
-            }
-            await ExitAsync();
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
-        catch (Exception ex) when (!exiting)
-        {
-            UpdateStatus.Text = Ui.F("Не удалось выполнить откат: {0}", ex.Message);
-        }
-        finally
-        {
-            checkingUpdates = false;
-            if (!exiting) CheckUpdatesButton.IsEnabled = RollbackButton.IsEnabled = true;
         }
     }
 
@@ -495,7 +344,9 @@ public partial class MainWindow : Window
         }
     }
 
-    private void Publish(ChatMessage message)
+    private void Publish(ChatMessage message) => Publish(message, isTest: false);
+
+    private void Publish(ChatMessage message, bool isTest)
     {
         if (exiting)
             return;
@@ -509,6 +360,7 @@ public partial class MainWindow : Window
             Recent.ScrollIntoView(Recent.Items[Recent.Items.Count - 1]);
         RenderChat();
         speech.Add(message);
+        plugins?.Publish(new(message.Id ?? message.DisplayId.ToString(), message.Name, message.Text, message.ReceivedAt, isTest));
     }
 
     private void RenderChat()
@@ -910,6 +762,8 @@ public partial class MainWindow : Window
         SkipShortcut.Text = settings.SpeechHotkeys.Skip?.ToString() ?? unset;
         ClearShortcut.Text = settings.SpeechHotkeys.Clear?.ToString() ?? unset;
         ClearDisplayedShortcut.Text = settings.SpeechHotkeys.ClearDisplayed?.ToString() ?? unset;
+        foreach (var (shortcut, field) in pluginShortcutFields.Values)
+            field.Text = settings.PluginHotkeys.GetValueOrDefault(shortcut.Id)?.ToString() ?? unset;
     }
 
     private void ShortcutFocused(object sender, KeyboardFocusChangedEventArgs e)
@@ -923,8 +777,7 @@ public partial class MainWindow : Window
         Dispatcher.BeginInvoke(new Action(() =>
         {
             if (!exiting && hotkeys is not null &&
-                Keyboard.FocusedElement != PauseShortcut && Keyboard.FocusedElement != SkipShortcut &&
-                Keyboard.FocusedElement != ClearShortcut && Keyboard.FocusedElement != ClearDisplayedShortcut)
+                (Keyboard.FocusedElement is not TextBox field || ShortcutId(field) is null))
             {
                 var errors = hotkeys.Suspend(false);
                 if (errors.Length != 0)
@@ -976,25 +829,34 @@ public partial class MainWindow : Window
 
     private void StoreShortcut(TextBox field, QueueShortcut? shortcut)
     {
-        if (hotkeys is null || !Enum.TryParse<QueueAction>(field.Tag as string, out var action))
+        if (hotkeys is null || ShortcutId(field) is not { } action)
             return;
-        var previous = settings.SpeechHotkeys;
+        var previousSpeech = settings.SpeechHotkeys;
+        var previousPlugins = settings.PluginHotkeys;
         try
         {
             if (shortcut is not null)
                 hotkeys.Validate(action, shortcut);
-            settings.SpeechHotkeys = previous.Set(action, shortcut);
+            if (pluginShortcutFields.TryGetValue(action, out var extension))
+            {
+                settings.PluginHotkeys = new(previousPlugins, StringComparer.Ordinal);
+                if (shortcut is null) settings.PluginHotkeys.Remove(extension.Shortcut.Id);
+                else settings.PluginHotkeys[extension.Shortcut.Id] = shortcut;
+            }
+            else
+                settings.SpeechHotkeys = previousSpeech.Set((QueueAction)action, shortcut);
             settings.Save();
-            hotkeys.Configure(settings.SpeechHotkeys);
-            UpdateShortcutFields();
-            HotkeyStatus.Text = "";
-            HotkeyStatus.Focus();
         }
         catch (Exception ex)
         {
-            settings.SpeechHotkeys = previous;
+            settings.SpeechHotkeys = previousSpeech;
+            settings.PluginHotkeys = previousPlugins;
             HotkeyStatus.Text = ex.Message;
+            return;
         }
+        ConfigureHotkeys();
+        UpdateShortcutFields();
+        HotkeyStatus.Focus();
     }
 
     private void UpdateAppSettings(TextBlock status)
@@ -1010,11 +872,17 @@ public partial class MainWindow : Window
         SaveSettings(status);
     }
 
-    private async Task UpdateLanguageAsync()
+    private void SelectLanguage(string code)
     {
-        if (exiting || LanguageChoice.SelectedIndex < 0)
+        var options = (Ui.LanguageChoice[])LanguageChoice.ItemsSource;
+        HeaderLanguageChoice.SelectedItem = LanguageChoice.SelectedItem = options.First(item => item.Code == code);
+    }
+
+    private async Task UpdateLanguageAsync(Ui.LanguageChoice? choice)
+    {
+        if (exiting || choice is null)
             return;
-        var selected = LanguageChoice.SelectedIndex == 1 ? "en" : "ru";
+        var selected = choice.Code;
         if (selected == settings.Language)
             return;
 
@@ -1027,11 +895,13 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             settings.Language = previous;
-            LanguageChoice.SelectedIndex = previous == "en" ? 1 : 0;
+            SelectLanguage(Ui.Language);
             LanguageStatus.Text = Ui.F("Не удалось сохранить настройки: {0}", ex.Message);
+            MessageBox.Show(this, LanguageStatus.Text, "APEX Chatd", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
 
+        SelectLanguage(selected);
         ((App)Application.Current).RestartRequested = true;
         await ExitAsync();
     }
@@ -1081,7 +951,7 @@ public partial class MainWindow : Window
     }
 
     private void TestClicked(object sender, RoutedEventArgs e) =>
-        Publish(new ChatMessage(Ui.T("Пример"), Ui.F("Тестовое сообщение номер {0}.", ++tests)));
+        Publish(new ChatMessage(Ui.T("Пример"), Ui.F("Тестовое сообщение номер {0}.", ++tests)), isTest: true);
     private void PauseClicked(object sender, RoutedEventArgs e) => speech.TogglePause();
     private void SkipClicked(object sender, RoutedEventArgs e) => speech.Skip();
     private void ClearClicked(object sender, RoutedEventArgs e) => speech.Clear();
@@ -1161,14 +1031,13 @@ public partial class MainWindow : Window
         exiting = true;
         hotkeys?.Dispose();
         overlayExpiryTimer.Stop();
-        voiceCatalogLifetime.Cancel();
         liveTimer.Stop();
-        updateTimer.Stop();
-        updateLifetime.Cancel();
+        pluginChecks.Cancel();
         SaveOverlayPosition();
         twitch?.Cancel();
         speech.Configure(settings with { Speech = false });
         overlay?.Close();
+        if (plugins is not null) await plugins.StopAsync();
         tray.Dispose();
         trayIcon.Dispose();
         while (obsChanging)

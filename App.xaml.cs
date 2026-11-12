@@ -7,6 +7,7 @@ public partial class App : Application
     private Mutex? instance;
     internal ThemeManager Themes { get; }
     internal bool RestartRequested { get; set; }
+    internal bool RestartToPlugins { get; set; }
 
     public App()
     {
@@ -34,7 +35,12 @@ public partial class App : Application
         base.OnStartup(e);
         var window = new MainWindow();
         MainWindow = window;
-        if (e.Args.Contains("--show-settings", StringComparer.OrdinalIgnoreCase))
+        if (e.Args.Contains("--show-plugins", StringComparer.OrdinalIgnoreCase))
+        {
+            window.ShowPlugins();
+            window.Show();
+        }
+        else if (e.Args.Contains("--show-settings", StringComparer.OrdinalIgnoreCase))
             window.Show();
         else if (!startInTray)
             window.ShowAtStartup(autostart);
@@ -49,6 +55,10 @@ public partial class App : Application
         base.OnExit(e);
         if (RestartRequested)
             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
-                Path.Combine(AppContext.BaseDirectory, "APEX Chatd.exe")) { UseShellExecute = true, Arguments = "--show-settings" });
+                Path.Combine(AppContext.BaseDirectory, "APEX Chatd.exe"))
+            {
+                UseShellExecute = true,
+                Arguments = RestartToPlugins ? "--show-plugins" : "--show-settings"
+            });
     }
 }

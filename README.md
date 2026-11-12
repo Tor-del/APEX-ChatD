@@ -1,4 +1,4 @@
-# APEX Chatd
+# APEX ChatD
 
 [Русская документация](README.ru.md) · [Windows x64 installer](https://github.com/Tor-del/APEX-ChatD/releases/latest)
 
@@ -6,9 +6,9 @@ APEX Chatd is a Windows tray app for your Twitch chat. It can display chat in a 
 
 ## Install and update
 
-Download the x64 installer from [GitHub Releases](https://github.com/Tor-del/APEX-ChatD/releases). It includes the .NET runtime and offers an option to start minimized when you sign in to Windows. Your preferences and Twitch session are stored separately in `%LOCALAPPDATA%\TwitchChatAgent`.
+Download either x64 installer from [GitHub Releases](https://github.com/Tor-del/APEX-ChatD/releases). The file ending in `-edge-tts-x64.exe` includes the optional Edge TTS plugin. It includes the .NET runtime and offers an option to start minimized when you sign in to Windows. Your preferences and Twitch session are stored separately in `%LOCALAPPDATA%\TwitchChatAgent`.
 
-Automatic update checks are enabled by default. You can also select **Check for updates** on the **Application** tab. For an Inno Setup installation, **Install** downloads and verifies the update, closes APEX Chatd, and launches the new version after installation. **Remind me later** postpones the prompt for 24 hours. **Skip this version** hides automatic reminders for that version. A manual check still shows available updates.
+The GitHub installer includes the GitHub Updater plugin with automatic checks enabled by default. Select **Check for updates** on the **Updates** tab for a manual check. For an Inno Setup installation, **Install** downloads and verifies the update, closes APEX Chatd, and launches the new version after installation. **Remind me later** postpones the prompt for 24 hours. **Skip this version** hides automatic reminders for that version. A manual check still shows available updates.
 
 After an upgrade from 1.18.0 or later, **Roll back to the previous version** reinstalls the exact previous GitHub release and restarts the app. Your preferences and Twitch session are retained.
 
@@ -28,9 +28,17 @@ Use **Refresh Twitch permissions** if you previously connected without moderatio
 
 ## Speech and controls
 
-Add voice profiles using Windows voices, Edge TTS, or an OpenAI-compatible speech endpoint. Double-click a profile or select **Edit** to open its settings. Select **Make primary** to use that profile by default. Random selection uses the profiles in the list, and assignments can be kept for each Twitch user until the session ends or you reset them.
+Add voice profiles using Windows voices, an OpenAI-compatible speech endpoint, or a TTS plugin. The installer with Edge TTS offers it as an optional plugin, selected by default. The [Edge TTS releases](https://github.com/Tor-del/APEX-ChatD-Plugin-EdgeTTS/releases/latest) also provide a separately installable ZIP. Double-click a profile or select **Edit** to open its settings. Select **Make primary** to use that profile by default. Random selection uses the profiles in the list, and assignments can be kept for each Twitch user until the session ends or you reset them.
 
 Set speed, an audio preset, pitch, and formants on each profile. Volume and the output device apply to all profiles. URLs are excluded from spoken messages, and messages starting with `!` are skipped by default. **Controls** lets you assign global shortcuts for pause or resume, skip, and clear queue. Use **Test message** on the Twitch tab to exercise the chat and speech pipeline without connecting a channel.
+
+## Interface language
+
+Russian and English are built in. To add a language, place a UTF-8 JSON file named after its language tag, such as `fr.json`, in `%LOCALAPPDATA%\TwitchChatAgent\Locales` and restart APEX Chatd. Use a `name` field for the language name and a `strings` object for translations. XAML labels use keys from `Labels` in [Ui.cs](Ui.cs). Messages from code use their original Russian text as the key. The [Russian README](README.ru.md#язык-интерфейса) includes an example.
+
+## Plugins
+
+Use **Plugins → Add plugin** to install a ZIP. Enable the plugin and select **Restart app**. Use **Open folder** to view user-installed plugin files. The list shows which releases APEX Chatd has reviewed and explains compatibility errors. Assign shortcuts for active plugin commands under **Controls → Plugin shortcuts**. For plugins that provide a release URL, **Check for update** checks for a newer version and can open its release page. See the [plugin SDK and packaging guide](Plugins/README.md).
 
 ## Build from source
 

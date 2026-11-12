@@ -1,7 +1,9 @@
 using System.Security.Cryptography;
 using System.Windows;
 using System.Windows.Controls;
-using ScreenReader.Edge;
+using PluginSpeech = ApexChatd.Plugins.SpeechProvider;
+using PluginVoiceInfo = ApexChatd.Plugins.Voice;
+using System.Globalization;
 using ScreenReader.Speech;
 using Windows.Media.SpeechSynthesis;
 
@@ -9,23 +11,21 @@ namespace TwitchChatAgent;
 
 internal partial class SpeechVoiceEditor : Window
 {
-    private static readonly SpeechProvider[] Providers = [SpeechProvider.Edge, SpeechProvider.Windows, SpeechProvider.Compatible];
+    private sealed record ProviderChoice(string Name, SpeechProvider BuiltIn, string? Id = null, PluginSpeech? Plugin = null);
+    private sealed record VoiceLanguage(string Code, string Name);
+    private readonly CancellationTokenSource catalogLifetime = new();
     private readonly SpeechVoiceProfile draft;
-    private readonly Func<Task<IReadOnlyList<SpeechVoice>>> loadEdgeVoices;
     private readonly Func<string, SpeechVoiceProfile, CancellationToken, Task> playSample;
     private CancellationTokenSource? samplePlayback;
-    private IReadOnlyList<SpeechVoice> edgeVoices = EdgeVoiceCatalog.Defaults;
+    private IReadOnlyList<PluginVoiceInfo> pluginVoices = [];
     private bool loadingVoiceProfile;
-    private bool edgeCatalogLoaded;
-    private bool edgeCatalogLoading;
     private bool closed;
 
     public SpeechVoiceProfile? Result { get; private set; }
 
     public SpeechVoiceEditor(Window owner, SpeechVoiceProfile profile, bool adding,
-        Func<Task<IReadOnlyList<SpeechVoice>>> loadEdgeVoices, Func<string, SpeechVoiceProfile, CancellationToken, Task> playSample)
+        IReadOnlyDictionary<string, PluginSpeech> extensions, Func<string, SpeechVoiceProfile, CancellationToken, Task> playSample)
     {
-        this.loadEdgeVoices = loadEdgeVoices;
         this.playSample = playSample;
         draft = profile;
         InitializeComponent();
@@ -37,6 +37,8 @@ internal partial class SpeechVoiceEditor : Window
         {
             closed = true;
             samplePlayback?.Cancel();
+            catalogLifetime.Cancel();
+            catalogLifetime.Dispose();
         };
         loadingVoiceProfile = true;
         try
@@ -44,15 +46,27 @@ internal partial class SpeechVoiceEditor : Window
             VoiceProfileName.Text = profile.Name;
             VoiceProfileStatus.Text = "";
             SpeechSample.Text = Ui.XamlText("SpeechSamplePhrase");
-            Engine.SelectedIndex = Math.Max(0, Array.IndexOf(Providers, profile.Provider));
+            var choices = new List<ProviderChoice>
+            {
+                new(Ui.XamlText("WindowsVoice"), SpeechProvider.Windows),
+                new(Ui.XamlText("CompatibleTtsProvider"), SpeechProvider.Compatible)
+            };
+            choices.AddRange(extensions.Select(item => new ProviderChoice(item.Value.Name,
+                item.Key == SpeechVoiceProfile.EdgeProviderId ? SpeechProvider.Edge : SpeechProvider.Windows, item.Key, item.Value)));
+            var choice = choices.FirstOrDefault(item => profile.ExtensionProviderId is { } id ? item.Id == id :
+                item.Id is null && item.BuiltIn == profile.Provider);
+            if (choice is null)
+            {
+                choice = new(Ui.F("Провайдер недоступен ({0})", profile.ExtensionProviderId), profile.Provider, profile.ExtensionProviderId);
+                choices.Add(choice);
+            }
+            Engine.ItemsSource = choices;
+            Engine.SelectedItem = choice;
             var windows = SpeechSynthesizer.AllVoices;
             var windowsLanguage = windows.FirstOrDefault(voice => voice.Id == profile.Voice)?.Language
-                ?? windows.FirstOrDefault(voice => voice.Language.StartsWith(Ui.Language + "-", StringComparison.OrdinalIgnoreCase))?.Language;
+                ?? windows.FirstOrDefault(voice => voice.Language.StartsWith(Ui.LanguageFamily + "-", StringComparison.OrdinalIgnoreCase))?.Language;
             PopulateLanguages(WindowsLanguage, windows.Select(voice => voice.Language), windowsLanguage);
             PopulateWindowsVoices(profile.Provider == SpeechProvider.Windows ? profile.Voice : null);
-            PopulateEdgeLanguages(profile.Provider == SpeechProvider.Edge && !string.IsNullOrWhiteSpace(profile.Language)
-                    ? profile.Language : EdgeVoiceCatalog.InterfaceLocale,
-                profile.Provider == SpeechProvider.Edge ? profile.Voice : null);
             TtsEndpoint.Text = profile.Endpoint;
             TtsModel.Text = profile.Model;
             TtsVoice.Text = profile.Provider == SpeechProvider.Compatible ? profile.Voice : "alloy";
@@ -81,9 +95,9 @@ internal partial class SpeechVoiceEditor : Window
         {
             if (!loadingVoiceProfile) PopulateWindowsVoices();
         };
-        EdgeLanguage.SelectionChanged += (_, _) =>
+        PluginLanguage.SelectionChanged += (_, _) =>
         {
-            if (!loadingVoiceProfile) PopulateEdgeVoices(edgeVoices);
+            if (!loadingVoiceProfile) PopulatePluginVoices();
         };
         SpeechEffectChoice.SelectionChanged += (_, _) => UpdateSpeechEffectVisibility();
         Loaded += (_, _) => { UpdateProfileProvider(); VoiceProfileName.Focus(); };
@@ -137,19 +151,21 @@ internal partial class SpeechVoiceEditor : Window
         }
     }
 
-    private SpeechProvider SelectedProvider => Engine.SelectedIndex >= 0 ? Providers[Engine.SelectedIndex] : SpeechProvider.Edge;
+    private ProviderChoice SelectedProvider => (ProviderChoice)Engine.SelectedItem;
 
     private SpeechVoiceProfile? ReadProfile()
     {
         try
         {
-            var provider = SelectedProvider;
+            var choice = SelectedProvider;
+            var provider = choice.BuiltIn;
             var endpoint = TtsEndpoint.Text.Trim();
             var model = TtsModel.Text.Trim();
-            var (voice, language, display) = provider switch
+            var (voice, language, display) = choice.Id is not null
+                ? ((PluginVoice.SelectedItem as PluginVoiceInfo)?.Id ?? PluginVoice.Text.Trim(), (string?)PluginLanguage.SelectedValue ?? "", (PluginVoice.SelectedItem as PluginVoiceInfo)?.Name ?? PluginVoice.Text.Trim())
+                : provider switch
             {
                 SpeechProvider.Windows when WindowsVoice.SelectedItem is VoiceInformation windows => (windows.Id, windows.Language, windows.DisplayName),
-                SpeechProvider.Edge when EdgeVoice.SelectedItem is SpeechVoice edge => (edge.ShortName, edge.Locale, edge.FriendlyName),
                 SpeechProvider.Compatible => (TtsVoice.Text.Trim(), "", TtsVoice.Text.Trim()),
                 _ => ("", "", "")
             };
@@ -158,7 +174,7 @@ internal partial class SpeechVoiceEditor : Window
                 VoiceProfileStatus.Text = Ui.T("Выберите или укажите голос.");
                 return null;
             }
-            if (provider == SpeechProvider.Compatible &&
+            if (choice.Id is null && provider == SpeechProvider.Compatible &&
                 (!Uri.TryCreate(endpoint, UriKind.Absolute, out var url) || url.Scheme is not ("http" or "https") || string.IsNullOrWhiteSpace(model)))
             {
                 VoiceProfileStatus.Text = Ui.T("Укажите HTTP(S)-адрес и модель TTS.");
@@ -167,10 +183,11 @@ internal partial class SpeechVoiceEditor : Window
             return draft with
             {
                 Name = string.IsNullOrWhiteSpace(VoiceProfileName.Text) ? display : VoiceProfileName.Text.Trim(),
-                Provider = provider, Voice = voice, Language = language,
+                Provider = provider, PluginProviderId = choice.Id, Voice = voice, Language = language,
+                ProviderOptions = choice.Id is null ? "" : PluginOptions.Text,
                 Endpoint = endpoint, Model = model,
                 Format = TtsFormat.SelectedIndex == 1 ? SpeechAudioFormat.Wave : SpeechAudioFormat.Mp3,
-                ProtectedApiKey = provider == SpeechProvider.Compatible ? SpeechVoiceProfile.ProtectApiKey(TtsApiKey.Password) : "",
+                ProtectedApiKey = choice.Id is null && provider == SpeechProvider.Compatible ? SpeechVoiceProfile.ProtectApiKey(TtsApiKey.Password) : "",
                 Rate = (int)Rate.Value, Volume = (int)VoiceVolume.Value, Effect = (SpeechEffect)SpeechEffectChoice.SelectedIndex,
                 Intensity = (int)SpeechEffectIntensity.Value, RadioNoise = SpeechRadioNoise.IsChecked == true,
                 Pitch = (int)SpeechPitch.Value, Formant = (int)SpeechFormant.Value
@@ -183,21 +200,44 @@ internal partial class SpeechVoiceEditor : Window
         }
     }
 
-    private void UpdateProfileProvider()
+    private async void UpdateProfileProvider()
     {
         if (loadingVoiceProfile) return;
-        var provider = SelectedProvider;
-        WindowsVoiceOptions.Visibility = provider == SpeechProvider.Windows ? Visibility.Visible : Visibility.Collapsed;
-        EdgeVoiceOptions.Visibility = provider == SpeechProvider.Edge ? Visibility.Visible : Visibility.Collapsed;
-        CompatibleTtsOptions.Visibility = provider == SpeechProvider.Compatible ? Visibility.Visible : Visibility.Collapsed;
-        if (provider == SpeechProvider.Edge)
-            _ = LoadEdgeCatalogAsync();
+        var choice = SelectedProvider;
+        WindowsVoiceOptions.Visibility = choice.Id is null && choice.BuiltIn == SpeechProvider.Windows ? Visibility.Visible : Visibility.Collapsed;
+        CompatibleTtsOptions.Visibility = choice.Id is null && choice.BuiltIn == SpeechProvider.Compatible ? Visibility.Visible : Visibility.Collapsed;
+        PluginVoiceOptions.Visibility = choice.Id is not null ? Visibility.Visible : Visibility.Collapsed;
+        if (choice.Id is null) return;
+        var existing = choice.Id == draft.ExtensionProviderId;
+        try
+        {
+            var label = choice.Plugin?.OptionsLabel;
+            PluginOptionsLabel.Text = label ?? "";
+            PluginOptionsLabel.Visibility = PluginOptions.Visibility = label is null ? Visibility.Collapsed : Visibility.Visible;
+            PluginOptions.Text = existing ? draft.ProviderOptions : "";
+            pluginVoices = choice.Plugin?.DefaultVoices ?? [];
+            SetPluginLanguages(existing ? draft.Language : null, existing ? draft.Voice : null);
+            PluginCatalogStatus.Text = "";
+            if (choice.Plugin is null) return;
+            var voices = await choice.Plugin.GetVoicesAsync(catalogLifetime.Token);
+            if (closed || !ReferenceEquals(SelectedProvider, choice) || voices.Count == 0) return;
+            var language = (string?)PluginLanguage.SelectedValue;
+            var voice = PluginVoice.Text;
+            pluginVoices = voices;
+            SetPluginLanguages(language, voice);
+        }
+        catch (OperationCanceledException) when (closed) { }
+        catch (Exception ex)
+        {
+            if (!closed && ReferenceEquals(SelectedProvider, choice))
+                PluginCatalogStatus.Text = ex.Message;
+        }
     }
 
     private static void PopulateLanguages(ComboBox selector, IEnumerable<string> locales, string? preferred)
     {
         selector.ItemsSource = locales.Distinct(StringComparer.OrdinalIgnoreCase)
-            .Select(locale => new VoiceLanguage(locale, EdgeVoiceCatalog.LanguageName(locale))).OrderBy(item => item.Name).ToArray();
+            .Select(locale => new VoiceLanguage(locale, LanguageName(locale))).OrderBy(item => item.Name).ToArray();
         selector.SelectedValue = preferred;
         if (selector.SelectedIndex < 0) selector.SelectedIndex = 0;
     }
@@ -210,47 +250,35 @@ internal partial class SpeechVoiceEditor : Window
         if (WindowsVoice.SelectedIndex < 0 && string.IsNullOrEmpty(preferred)) WindowsVoice.SelectedIndex = 0;
     }
 
-    private void PopulateEdgeLanguages(string? language, string? preferred)
+    private void SetPluginLanguages(string? language, string? voice)
     {
-        var choices = edgeVoices;
-        if (!string.IsNullOrWhiteSpace(preferred) && choices.All(voice => voice.ShortName != preferred))
-            choices = [.. choices, new SpeechVoice(preferred, preferred, language ?? EdgeVoiceCatalog.LocaleFromVoice(preferred), "")];
-        PopulateLanguages(EdgeLanguage, choices.Select(voice => voice.Locale), language);
-        PopulateEdgeVoices(choices, preferred);
-    }
-
-    private void PopulateEdgeVoices(IReadOnlyList<SpeechVoice> choices, string? preferred = null)
-    {
-        var locale = EdgeLanguage.SelectedValue as string;
-        EdgeVoice.ItemsSource = choices.Where(voice => string.Equals(voice.Locale, locale, StringComparison.OrdinalIgnoreCase))
-            .OrderBy(voice => voice.FriendlyName).ToArray();
-        EdgeVoice.SelectedValue = preferred;
-        if (EdgeVoice.SelectedIndex < 0) EdgeVoice.SelectedIndex = 0;
-    }
-
-    private async Task LoadEdgeCatalogAsync()
-    {
-        if (edgeCatalogLoaded || edgeCatalogLoading || closed) return;
-        edgeCatalogLoading = true;
-        EdgeCatalogStatus.Text = Ui.T("Загружаем каталог Edge TTS…");
+        loadingVoiceProfile = true;
         try
         {
-            var loaded = await loadEdgeVoices();
-            if (closed) return;
-            edgeVoices = loaded;
-            edgeCatalogLoaded = true;
-            loadingVoiceProfile = true;
-            try { PopulateEdgeLanguages(EdgeLanguage.SelectedValue as string, EdgeVoice.SelectedValue as string); }
-            finally { loadingVoiceProfile = false; }
-            EdgeCatalogStatus.Text = "";
+            var locales = pluginVoices.Select(item => item.Language);
+            if (!string.IsNullOrEmpty(language)) locales = locales.Append(language);
+            var preferred = language ?? pluginVoices.FirstOrDefault(item =>
+                item.Language.StartsWith(Ui.LanguageFamily + "-", StringComparison.OrdinalIgnoreCase))?.Language;
+            PopulateLanguages(PluginLanguage, locales, preferred);
+            PopulatePluginVoices(voice);
         }
-        catch (OperationCanceledException) when (closed) { }
-        catch (Exception ex)
-        {
-            if (!closed)
-                EdgeCatalogStatus.Text = Ui.F("Каталог Edge TTS недоступен ({0}). Показаны встроенные варианты.", EdgeSpeechClient.DescribeFailure(ex));
-        }
-        finally { edgeCatalogLoading = false; }
+        finally { loadingVoiceProfile = false; }
+    }
+
+    private void PopulatePluginVoices(string? preferred = null)
+    {
+        var locale = PluginLanguage.SelectedValue as string;
+        var choices = pluginVoices.Where(voice => voice.Language == locale).OrderBy(voice => voice.Name).ToArray();
+        PluginVoice.ItemsSource = choices;
+        PluginVoice.SelectedItem = choices.FirstOrDefault(voice => voice.Id == preferred) ??
+            (string.IsNullOrEmpty(preferred) ? choices.FirstOrDefault() : null);
+        if (PluginVoice.SelectedItem is null) PluginVoice.Text = preferred ?? "";
+    }
+
+    private static string LanguageName(string locale)
+    {
+        try { return $"{CultureInfo.GetCultureInfo(locale).NativeName} ({locale})"; }
+        catch (CultureNotFoundException) { return locale; }
     }
 
     private void UpdateSpeechEffectVisibility()

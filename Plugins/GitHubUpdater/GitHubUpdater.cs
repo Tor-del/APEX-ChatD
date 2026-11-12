@@ -4,7 +4,10 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Win32;
 
-namespace TwitchChatAgent;
+using System.IO;
+using System.Net.Http;
+
+namespace ApexChatd.GitHubUpdates;
 
 internal sealed class GitHubUpdater(HttpClient? client = null)
 {
@@ -14,7 +17,6 @@ internal sealed class GitHubUpdater(HttpClient? client = null)
     private const long MaxInstallerSize = 512L * 1024 * 1024;
     private static readonly HttpClient SharedClient = CreateClient();
     private readonly HttpClient http = client ?? SharedClient;
-    public static Version CurrentVersion => typeof(GitHubUpdater).Assembly.GetName().Version!;
 
     internal sealed record Release(Version Version, Uri Page, Uri Download, long Size, string Digest);
 
@@ -26,12 +28,13 @@ internal sealed class GitHubUpdater(HttpClient? client = null)
     }
 
     public Task<Release?> CheckAsync(Version current, CancellationToken ct) =>
-        ReadReleaseAsync("latest", version => version > current, ct);
+        ReadReleaseAsync("latest", version => version > current, allowLegacyInstaller: false, ct);
 
     public Task<Release?> FindRollbackAsync(Version target, CancellationToken ct) =>
-        ReadReleaseAsync($"tags/v{target.ToString(3)}", version => version == target, ct);
+        ReadReleaseAsync($"tags/v{target.ToString(3)}", version => version == target, allowLegacyInstaller: true, ct);
 
-    private async Task<Release?> ReadReleaseAsync(string endpoint, Func<Version, bool> accept, CancellationToken ct)
+    private async Task<Release?> ReadReleaseAsync(string endpoint, Func<Version, bool> accept,
+        bool allowLegacyInstaller, CancellationToken ct)
     {
         using var request = new HttpRequestMessage(HttpMethod.Get, $"{ReleasesApi}/{endpoint}");
         request.Headers.Accept.ParseAdd("application/vnd.github+json");
@@ -48,30 +51,42 @@ internal sealed class GitHubUpdater(HttpClient? client = null)
         var build = new Version(version.Major, version.Minor, version.Build, 0);
         if (!accept(build)) return null;
 
-        var name = $"APEX-Chatd-Setup-{build}-x64.exe";
+        var baseName = $"APEX-Chatd-Setup-{build}";
         var page = new Uri($"{Repository}/releases/tag/{tag}");
-        var download = new Uri($"{Repository}/releases/download/{tag}/{name}");
-        foreach (var asset in root.GetProperty("assets").EnumerateArray())
+        var variantFile = Path.Combine(AppContext.BaseDirectory, "installer-variant.txt");
+        var withEdge = File.Exists(variantFile) && File.ReadAllText(variantFile).Trim() == "edge-tts";
+        var assets = root.GetProperty("assets");
+        string[] variants = withEdge
+            ? allowLegacyInstaller ? ["-edge-tts", ""] : ["-edge-tts"]
+            : [""];
+        foreach (var variant in variants)
         {
-            if (asset.GetProperty("name").GetString() != name || asset.GetProperty("browser_download_url").GetString() != download.AbsoluteUri)
-                continue;
-            var size = asset.GetProperty("size").GetInt64();
-            var digest = asset.TryGetProperty("digest", out var hash) ? hash.GetString() : null;
-            if (size > 0 && size <= MaxInstallerSize && digest is { Length: 71 } && digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) &&
-                digest.AsSpan(7).ToString().All(Uri.IsHexDigit))
-                return new(build, page, download, size, digest[7..]);
+            var name = $"{baseName}{variant}-x64.exe";
+            var download = new Uri($"{Repository}/releases/download/{tag}/{name}");
+            foreach (var asset in assets.EnumerateArray())
+            {
+                if (asset.GetProperty("name").GetString() != name)
+                    continue;
+                var size = asset.GetProperty("size").GetInt64();
+                var digest = asset.TryGetProperty("digest", out var hash) ? hash.GetString() : null;
+                if (asset.GetProperty("browser_download_url").GetString() == download.AbsoluteUri &&
+                    size > 0 && size <= MaxInstallerSize && digest is { Length: 71 } &&
+                    digest.StartsWith("sha256:", StringComparison.OrdinalIgnoreCase) && digest.AsSpan(7).ToString().All(Uri.IsHexDigit))
+                    return new(build, page, download, size, digest[7..]);
+                throw new InvalidDataException(Ui.T("В релизе нет установщика с проверяемой контрольной суммой."));
+            }
         }
         throw new InvalidDataException(Ui.T("В релизе нет установщика с проверяемой контрольной суммой."));
     }
 
-    public static Version? FindPreviousVersion(string? directory)
+    public static Version? FindPreviousVersion(string? directory, Version currentVersion)
     {
         if (directory is null) return null;
         try
         {
             var file = Path.Combine(directory, "previous-version.txt");
             return File.Exists(file) && Version.TryParse(File.ReadAllText(file).Trim(), out var previous) &&
-                previous.Revision == 0 && previous >= FirstAutomaticInstaller && previous < CurrentVersion ? previous : null;
+                previous.Revision == 0 && previous >= FirstAutomaticInstaller && previous < currentVersion ? previous : null;
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
@@ -98,7 +113,7 @@ internal sealed class GitHubUpdater(HttpClient? client = null)
     {
         var directory = Path.Combine(Path.GetTempPath(), "APEX-Chatd-Updates");
         Directory.CreateDirectory(directory);
-        var file = Path.Combine(directory, $"APEX-Chatd-Setup-{release.Version}-x64.exe");
+        var file = Path.Combine(directory, Path.GetFileName(release.Download.AbsolutePath));
         var partial = file + ".partial";
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromMinutes(10));

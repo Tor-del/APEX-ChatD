@@ -59,6 +59,7 @@ internal sealed record Settings
     public bool RandomSpeechVoice { get; set; }
     public bool PinSpeechVoice { get; set; }
     public QueueBindings SpeechHotkeys { get; set; } = new();
+    public Dictionary<string, QueueShortcut> PluginHotkeys { get; set; } = new(StringComparer.Ordinal);
     public int Volume { get; set; } = 100;
     public ChatTheme DesktopTheme { get; set; } = new();
     public ChatTheme ObsTheme { get; set; } = new(Opacity: 0);
@@ -76,6 +77,7 @@ internal sealed record Settings
         using var document = JsonDocument.Parse(File.ReadAllBytes(path));
         var root = document.RootElement;
         var settings = root.Deserialize<Settings>() ?? new();
+        settings.PluginHotkeys ??= new(StringComparer.Ordinal);
         if (root.ValueKind != JsonValueKind.Object || root.TryGetProperty(nameof(SpeechFilter), out _))
             return settings;
 

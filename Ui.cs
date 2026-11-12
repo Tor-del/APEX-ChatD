@@ -11,26 +11,58 @@ public sealed class UiExtension(string key) : MarkupExtension
 
 internal static class Ui
 {
+    public sealed record LanguageChoice(string Code, string Name, string ShortName);
+
+    private static readonly LocalizationCatalog Catalog = new(
+        Path.Combine(AppContext.BaseDirectory, "Locales"),
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "TwitchChatAgent", "Locales"));
     private static string language = "ru";
     public static string Language
     {
         get => language;
         set
         {
-            language = value == "en" ? "en" : "ru";
-            ScreenReader.Speech.SpeechText.UseEnglish = language == "en";
+            language = ResolveLanguage(value);
+            ScreenReader.Speech.SpeechText.UseEnglish = !IsRussian;
         }
     }
 
-    public static string T(string text) => Language == "en" && English.TryGetValue(text, out var translation)
-        ? translation : text;
+    public static string LanguageFamily => CultureInfo.GetCultureInfo(Language).TwoLetterISOLanguageName;
+    private static bool IsRussian => LanguageFamily == "ru";
 
-    public static string F(string format, params object?[] args) => string.Format(CultureInfo.CurrentCulture, T(format), args);
+    public static LanguageChoice[] Languages =>
+        new[] { ("ru", "Русский"), ("en", "English") }
+            .Concat(Catalog.Languages.OrderBy(item => item.Name))
+            .DistinctBy(item => item.Item1, StringComparer.OrdinalIgnoreCase)
+            .Select(item => new LanguageChoice(item.Item1, item.Item2, item.Item1.ToUpperInvariant()))
+            .ToArray();
+
+    private static string ResolveLanguage(string? language)
+    {
+        for (var culture = LocalizationCatalog.GetCulture(language); culture is not null && culture.Name.Length > 0; culture = culture.Parent)
+            if (culture.Name is "ru" or "en" || Catalog.Contains(culture.Name))
+                return culture.Name;
+        return "ru";
+    }
+
+    public static string Translate(string russian, string english) =>
+        Catalog.Find(Language, russian) ?? (IsRussian ? russian : english);
+
+    public static string T(string text) => Translate(text, English.GetValueOrDefault(text) ?? text);
+
+    public static string F(string format, params object?[] args)
+    {
+        try { return string.Format(CultureInfo.CurrentCulture, T(format), args); }
+        catch (FormatException)
+        {
+            return string.Format(CultureInfo.CurrentCulture, IsRussian ? format : English.GetValueOrDefault(format) ?? format, args);
+        }
+    }
 
     public static string XamlText(string key)
     {
         var pair = Labels[key];
-        return Language == "en" ? pair.English : pair.Russian;
+        return Catalog.Find(Language, key) ?? (IsRussian ? pair.Russian : pair.English);
     }
 
     private static readonly Dictionary<string, (string Russian, string English)> Labels = new()
@@ -199,6 +231,14 @@ internal static class Ui
         [" · Пауза"] = " · Paused",
         ["Версия {0}"] = "Version {0}",
         ["Не удалось прочитать настройку автозапуска: {0}"] = "Could not read the startup setting: {0}",
+        ["Провайдер недоступен."] = "Provider unavailable.",
+        ["Провайдер недоступен ({0})"] = "Provider unavailable ({0})",
+        ["Идентификатор плагина уже используется: {0}"] = "Plugin ID already in use: {0}",
+        ["В этой сборке нет ключа проверки плагинов."] = "This build has no plugin approval key.",
+        ["Подпись плагина недействительна."] = "The plugin signature is invalid.",
+        ["Требуется API от {0} до {1} (не включая). Доступен API {2}."] = "Requires plugin API {0} up to (excluding) {1}. Available API: {2}.",
+        ["Требуется APEX Chatd {0} или новее."] = "Requires APEX Chatd {0} or later.",
+        ["Плагин с таким идентификатором уже установлен."] = "A plugin with this ID is already installed.",
         ["Не удалось сохранить настройки: {0}"] = "Could not save settings: {0}",
         ["Не удалось воспроизвести пример: {0}"] = "Could not play the sample: {0}",
         ["Не удалось восстановить подключение: {0}"] = "Could not restore the connection: {0}",

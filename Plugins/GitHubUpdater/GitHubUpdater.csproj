@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.22621.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <AssemblyName>ApexChatd.GitHubUpdater</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="Locales/*.json" CopyToPublishDirectory="PreserveNewest" />
+    <ProjectReference Include="../../PluginSdk/Chatd.PluginSdk.csproj" Private="false" />
+  </ItemGroup>
+</Project>

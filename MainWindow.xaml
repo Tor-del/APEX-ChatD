@@ -1,7 +1,7 @@
 <Window x:Class="TwitchChatAgent.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:local="clr-namespace:TwitchChatAgent" Title="APEX Chatd" Icon="Assets/APEXChatd.ico" Width="960" Height="862.5" MinWidth="850" MinHeight="620"
+        xmlns:local="clr-namespace:TwitchChatAgent" Title="APEX ChatD" Icon="Assets/APEXChatd.ico" Width="960" Height="879.75" MinWidth="850" MinHeight="620"
         Background="{DynamicResource FluentBackdrop}" Foreground="{DynamicResource FluentText}" FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="14" WindowStartupLocation="CenterScreen">
   <Window.Resources>
   <Style x:Key="SettingsSection" TargetType="Border">
@@ -10,6 +10,9 @@
     <Setter Property="CornerRadius" Value="8"/>
     <Setter Property="Padding" Value="14"/>
     <Setter Property="Margin" Value="0,0,0,12"/>
+  </Style>
+  <Style x:Key="StatusWhenSet" TargetType="TextBlock">
+    <Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers>
   </Style>
   <Style x:Key="SettingsSectionTitle" TargetType="TextBlock" BasedOn="{StaticResource FieldLabel}">
     <Setter Property="FontSize" Value="15"/>
@@ -62,15 +65,25 @@
   </Style>
   </Window.Resources>
   <DockPanel Margin="24">
-    <StackPanel DockPanel.Dock="Top" Margin="0,0,0,16">
-      <StackPanel Orientation="Horizontal"><Image Source="Assets/APEXChatd.ico" Width="32" Height="32" Margin="0,0,8,0"/><TextBlock Text="APEX Chatd" FontSize="27" FontWeight="SemiBold"/></StackPanel>
-      <TextBlock Text="{local:Ui ChannelChatOnYourDesktopInOBSAndInYourHeadphones}" Foreground="{DynamicResource FluentSecondary}"/>
-    </StackPanel>
+    <DockPanel DockPanel.Dock="Top" Margin="0,0,0,16">
+      <ComboBox x:Name="HeaderLanguageChoice" DockPanel.Dock="Right" Width="88" Height="32" MinHeight="32"
+                VerticalAlignment="Top" Margin="16,0,0,0" FontSize="12" FontWeight="SemiBold"
+                ToolTip="{local:Ui InterfaceLanguage}" AutomationProperties.Name="{local:Ui InterfaceLanguage}"
+                DisplayMemberPath="ShortName"/>
+      <StackPanel>
+        <StackPanel Orientation="Horizontal">
+          <Image Source="Assets/APEXChatd.png" Width="32" Height="32" Margin="0,0,8,0"
+                 RenderOptions.BitmapScalingMode="HighQuality"/>
+          <TextBlock Text="APEX ChatD" FontSize="27" FontWeight="SemiBold"/>
+        </StackPanel>
+        <TextBlock Text="{local:Ui ChannelChatOnYourDesktopInOBSAndInYourHeadphones}" Foreground="{DynamicResource FluentSecondary}" TextWrapping="Wrap"/>
+      </StackPanel>
+    </DockPanel>
     <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,14,0,0">
       <Button Content="{local:Ui TestMessage}" Click="TestClicked"/>
       <Button Content="{local:Ui ClearDisplayedMessages}" Click="ClearDisplayedClicked"/>
     </StackPanel>
-    <TabControl>
+    <TabControl x:Name="MainTabs">
       <TabItem Header="Twitch" Tag="&#xE8BD;">
         <ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Margin="28,24">
           <TextBlock Text="{local:Ui ConnectYourChannel}" FontSize="19" FontWeight="SemiBold" Margin="0,0,0,16"/>
@@ -109,15 +122,15 @@
       </TabItem>
       <TabItem Header="{local:Ui Overlay}" Tag="&#xE7F4;">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-          <StackPanel Margin="28,24">
+          <StackPanel Margin="28,24,28,8">
             <CheckBox x:Name="OverlayEnabled" Content="{local:Ui ShowChatAboveOtherWindows}" Margin="0,0,0,12"/>
             <CheckBox x:Name="OverlayLiveOnly" Content="{local:Ui ShowTheOverlayOnlyWhileLive}" Margin="0,0,0,12"/>
             <ContentControl x:Name="OverlayTheme"/>
             <WrapPanel Margin="0,14,0,0">
               <Button x:Name="MoveOverlay" Content="{local:Ui PositionOverlay}" Click="MoveOverlayClicked"/>
             </WrapPanel>
-            <TextBlock x:Name="LiveStatus" Margin="0,8,0,0" TextWrapping="Wrap"/>
-            <TextBlock x:Name="OverlayStatus" Margin="0,12,0,0" TextWrapping="Wrap"/>
+            <TextBlock x:Name="LiveStatus" Style="{StaticResource StatusWhenSet}" Margin="0,8,0,0" TextWrapping="Wrap"/>
+            <TextBlock x:Name="OverlayStatus" Style="{StaticResource StatusWhenSet}" Margin="0,8,0,0" TextWrapping="Wrap"/>
           </StackPanel>
         </ScrollViewer>
       </TabItem>
@@ -160,7 +173,7 @@
               <StackPanel>
                 <TextBlock Text="{local:Ui MissingSpeechVoices}" TextWrapping="Wrap"/>
                 <WrapPanel Margin="0,8,0,0">
-                  <Button Content="{local:Ui AddRandomEdgeVoice}" Click="AddRandomEdgeVoiceClicked"/>
+                  <Button x:Name="AddRandomEdgeVoiceButton" Content="{local:Ui AddRandomEdgeVoice}" Click="AddRandomEdgeVoiceClicked" Visibility="Collapsed"/>
                   <Button Content="{local:Ui OpenVoices}" Click="OpenVoicesClicked" Margin="0"/>
                 </WrapPanel>
               </StackPanel>
@@ -206,22 +219,31 @@
             </StackPanel>
             <CheckBox x:Name="SkipSpeechEmotes" Content="{local:Ui SkipSpeechEmotes}" Margin="0,0,0,12"/>
             <CheckBox x:Name="RetrySpeech" Content="{local:Ui RetryFailedMessagesIndefinitely}" Margin="0,0,0,12"/>
-            <TextBlock Text="{local:Ui AudioOutputDevice}" Margin="0,12,0,4"/>
-            <DockPanel>
-              <Button DockPanel.Dock="Right" Content="{local:Ui RefreshAudioDevices}" Click="RefreshAudioDevicesClicked" Margin="8,0,0,0"/>
-              <ComboBox x:Name="AudioDeviceChoice" DisplayMemberPath="Name" SelectedValuePath="Id"/>
-            </DockPanel>
-            <DockPanel Margin="0,4,0,4">
-              <TextBlock DockPanel.Dock="Left" Text="{local:Ui Volume}" Width="100"/>
-              <TextBlock DockPanel.Dock="Right" Width="60" TextAlignment="Right"
-                         Text="{Binding Value, ElementName=Volume, StringFormat={}{0:0}%}"/>
-              <Slider x:Name="Volume" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True"
-                      IsMoveToPointEnabled="True" SmallChange="1" LargeChange="5" AutomationProperties.Name="{local:Ui Volume}"/>
-            </DockPanel>
-            <TextBlock x:Name="AudioDeviceStatus" TextWrapping="Wrap"/>
-            <TextBlock x:Name="SpeechSettingsStatus" TextWrapping="Wrap"/>
+            <Border Style="{StaticResource SettingsSection}" Padding="14,12" Margin="0,0,0,8"
+                    Background="{DynamicResource FluentBackdrop}">
+              <StackPanel>
+                <TextBlock Text="{local:Ui AudioOutputDevice}" Style="{StaticResource FieldLabel}"/>
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Content="{local:Ui RefreshAudioDevices}" Click="RefreshAudioDevicesClicked" Margin="8,0,0,0"/>
+                  <ComboBox x:Name="AudioDeviceChoice" DisplayMemberPath="Name" SelectedValuePath="Id"
+                            AutomationProperties.Name="{local:Ui AudioOutputDevice}"/>
+                </DockPanel>
+                <DockPanel Margin="0,10,0,0">
+                  <TextBlock DockPanel.Dock="Left" Text="{local:Ui Volume}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+                  <Border DockPanel.Dock="Right" Background="{DynamicResource FluentSurface}" CornerRadius="5"
+                          Padding="6,3" MinWidth="49" Margin="10,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Value, ElementName=Volume, StringFormat={}{0:0}%}"
+                               TextAlignment="Center" FontSize="12" FontWeight="SemiBold"/>
+                  </Border>
+                  <Slider x:Name="Volume" Minimum="0" Maximum="100" TickFrequency="1" IsSnapToTickEnabled="True"
+                          IsMoveToPointEnabled="True" SmallChange="1" LargeChange="5" AutomationProperties.Name="{local:Ui Volume}"/>
+                </DockPanel>
+                <TextBlock x:Name="AudioDeviceStatus" Style="{StaticResource StatusWhenSet}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+                <TextBlock x:Name="SpeechSettingsStatus" Style="{StaticResource StatusWhenSet}" Margin="0,6,0,0" TextWrapping="Wrap"/>
+              </StackPanel>
+            </Border>
             <Border BorderBrush="{DynamicResource FluentPanelStroke}" BorderThickness="1" CornerRadius="8"
-                    Padding="12" Margin="0,16,0,0">
+                    Padding="12">
               <StackPanel>
                 <TextBlock Text="{local:Ui SpeechQueue}" Style="{StaticResource FieldLabel}"/>
                 <WrapPanel>
@@ -280,6 +302,7 @@
         </ScrollViewer>
       </TabItem>
       <TabItem Header="{local:Ui Controls}" Tag="&#xE765;">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel Margin="28,24">
           <TextBlock Text="{local:Ui Hotkeys}" Style="{StaticResource FieldLabel}"/>
           <TextBlock Text="{local:Ui QueueHotkeyHint}" TextWrapping="Wrap" Foreground="{DynamicResource FluentSecondary}" Margin="0,0,0,14"/>
@@ -296,8 +319,10 @@
           <TextBox x:Name="ClearDisplayedShortcut" Tag="ClearDisplayed" IsReadOnly="True" PreviewKeyDown="ShortcutKeyDown"
                    PreviewMouseDown="ShortcutMouseDown" GotKeyboardFocus="ShortcutFocused" LostKeyboardFocus="ShortcutUnfocused"
                    AutomationProperties.Name="{local:Ui ClearDisplayedMessages}"/>
+          <StackPanel x:Name="PluginShortcutList"/>
           <TextBlock x:Name="HotkeyStatus" TextWrapping="Wrap" Focusable="True" Margin="0,12,0,0"/>
         </StackPanel>
+        </ScrollViewer>
       </TabItem>
       <TabItem Header="{local:Ui Application}" Tag="&#xE713;">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
@@ -326,25 +351,12 @@
               </StackPanel>
               <StackPanel Grid.Column="2">
                 <TextBlock Text="{local:Ui InterfaceLanguage}" Style="{StaticResource SettingsSectionTitle}"/>
-                <ComboBox x:Name="LanguageChoice" AutomationProperties.Name="{local:Ui InterfaceLanguage}">
-                  <ComboBoxItem Content="Русский"/>
-                  <ComboBoxItem Content="English"/>
-                </ComboBox>
+                <ComboBox x:Name="LanguageChoice" AutomationProperties.Name="{local:Ui InterfaceLanguage}" DisplayMemberPath="Name"/>
                 <TextBlock x:Name="LanguageStatus" TextWrapping="Wrap"/>
               </StackPanel>
             </Grid>
             <Border Style="{StaticResource SettingsSection}">
-              <StackPanel>
-                <TextBlock Text="{local:Ui Updates}" Style="{StaticResource SettingsSectionTitle}"/>
-                <TextBlock x:Name="VersionLabel" Margin="0,0,0,8" Foreground="{DynamicResource FluentSecondary}"/>
-                <CheckBox x:Name="AutoCheckUpdates" Content="{local:Ui AutoCheckUpdates}"/>
-                <StackPanel Orientation="Horizontal" Margin="0,8,0,0">
-                  <Button x:Name="CheckUpdatesButton" Content="{local:Ui CheckUpdates}" Click="CheckUpdatesClicked"/>
-                  <Button x:Name="RollbackButton" Content="{local:Ui RollbackUpdate}" Click="RollbackClicked"
-                          Margin="0" Visibility="Collapsed"/>
-                </StackPanel>
-                <TextBlock x:Name="UpdateStatus" Margin="0,8,0,0" TextWrapping="Wrap"/>
-              </StackPanel>
+              <TextBlock x:Name="VersionLabel" Foreground="{DynamicResource FluentSecondary}"/>
             </Border>
             <StackPanel Margin="0,0,0,18">
               <Button Content="{local:Ui ResetAllSettings}" Click="ResetSettingsClicked" HorizontalAlignment="Left" Margin="0"/>
@@ -362,6 +374,25 @@
             </Border>
           </StackPanel>
         </ScrollViewer>
+      </TabItem>
+      <TabItem x:Name="PluginsTab" Tag="&#xE74C;">
+        <DockPanel Margin="28,20,28,24">
+          <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource FluentDivider}" BorderThickness="0,0,0,1"
+                  Margin="0,0,0,16" Padding="0,0,0,12">
+            <StackPanel>
+              <WrapPanel>
+                <Button x:Name="AddPluginButton" Click="AddPluginClicked" Style="{StaticResource AccentButton}" IsEnabled="False" Margin="0,0,8,8"/>
+                <Button x:Name="OpenPluginFolderButton" Click="OpenPluginFolderClicked" Margin="0,0,8,8"/>
+                <Button x:Name="RestartForPluginsButton" Click="RestartForPluginsClicked" Margin="0,0,0,8"/>
+              </WrapPanel>
+              <TextBlock x:Name="PluginStatus" TextWrapping="Wrap" Visibility="Collapsed" Margin="0,0,0,4"
+                         Foreground="{DynamicResource FluentAccent}" AutomationProperties.LiveSetting="Polite"/>
+            </StackPanel>
+          </Border>
+          <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="PluginList"/>
+          </ScrollViewer>
+        </DockPanel>
       </TabItem>
     </TabControl>
   </DockPanel>

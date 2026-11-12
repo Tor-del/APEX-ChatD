@@ -1,4 +1,4 @@
-#define AppName "APEX Chatd"
+#define AppName "APEX ChatD"
 #define AppExe "APEX Chatd.exe"
 #define Payload SourcePath + "..\bin\InstallerPayload"
 #define AppVersion GetVersionNumbersString(Payload + "\" + AppExe)
@@ -23,7 +23,11 @@ WizardStyle=modern dynamic
 SetupIconFile=..\Assets\APEXChatd.ico
 UninstallDisplayIcon={app}\{#AppExe}
 OutputDir=..\bin\Setup
+#ifdef EdgePayload
+OutputBaseFilename=APEX-Chatd-Setup-{#AppVersion}-edge-tts-x64
+#else
 OutputBaseFilename=APEX-Chatd-Setup-{#AppVersion}-x64
+#endif
 Compression=lzma2/fast
 SolidCompression=yes
 
@@ -34,6 +38,8 @@ Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 [CustomMessages]
 en.AutoStart=Start APEX Chatd minimized when I sign in to Windows
 ru.AutoStart=Запускать APEX Chatd свёрнутым при входе в Windows
+en.EdgeTts=Install the Edge TTS plugin
+ru.EdgeTts=Установить плагин Edge TTS
 en.Launch=Launch APEX Chatd
 ru.Launch=Запустить APEX Chatd
 en.UpdateWaitFailed=APEX Chatd is still closing. Close it and run the installer again.
@@ -41,14 +47,21 @@ ru.UpdateWaitFailed=APEX Chatd ещё завершает работу. Закр�
 
 [Tasks]
 Name: "autostart"; Description: "{cm:AutoStart}"; Flags: unchecked
+#ifdef EdgePayload
+Name: "edgetts"; Description: "{cm:EdgeTts}"
+#endif
 
 [Files]
-Source: "{#Payload}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#Payload}\*"; DestDir: "{app}"; Excludes: "ScreenReader.Edge.*,BundledPlugins\*"; Flags: ignoreversion recursesubdirs createallsubdirs
+#ifdef UpdaterPayload
+Source: "{#UpdaterPayload}\*"; DestDir: "{app}\BundledPlugins\apexchatd.github-updater"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
+#ifdef EdgePayload
+Source: "{#EdgePayload}\*"; DestDir: "{app}\BundledPlugins\apexchatd.edge-tts"; Tasks: edgetts; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
 Source: "..\Vendor\THIRD-PARTY-NOTICES.md"; DestDir: "{app}\source"; Flags: ignoreversion
 Source: "..\Vendor\Directory.Build.props"; DestDir: "{app}\source"; Flags: ignoreversion
 Source: "..\Vendor\licenses\*"; DestDir: "{app}\source\licenses"; Flags: ignoreversion
-Source: "..\Vendor\ScreenReader.Edge\*.cs"; DestDir: "{app}\source\ScreenReader.Edge"; Flags: ignoreversion
-Source: "..\Vendor\ScreenReader.Edge\*.csproj"; DestDir: "{app}\source\ScreenReader.Edge"; Flags: ignoreversion
 Source: "..\Vendor\ScreenReader.Speech\*.cs"; DestDir: "{app}\source\ScreenReader.Speech"; Flags: ignoreversion
 Source: "..\Vendor\ScreenReader.Speech\*.csproj"; DestDir: "{app}\source\ScreenReader.Speech"; Flags: ignoreversion
 
@@ -64,8 +77,14 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueName: 
 Filename: "{app}\{#AppExe}"; Description: "{cm:Launch}"; Flags: nowait postinstall skipifsilent
 Filename: "{app}\{#AppExe}"; Parameters: "--show-settings"; WorkingDir: "{app}"; Flags: nowait skipifnotsilent; Check: IsAutomaticUpdate
 
+[InstallDelete]
+Type: files; Name: "{app}\ScreenReader.Edge.dll"
+Type: filesandordirs; Name: "{app}\BundledPlugins\apexchatd.github-updater"
+Type: filesandordirs; Name: "{app}\BundledPlugins\apexchatd.edge-tts"
+
 [UninstallDelete]
 Type: files; Name: "{app}\previous-version.txt"
+Type: files; Name: "{app}\installer-variant.txt"
 
 [Code]
 const
@@ -121,6 +140,11 @@ var
   Comparison: Integer;
 begin
   if CurStep <> ssPostInstall then Exit;
+#ifdef EdgePayload
+  SaveStringToFile(ExpandConstant('{app}\installer-variant.txt'), 'edge-tts', False);
+#else
+  SaveStringToFile(ExpandConstant('{app}\installer-variant.txt'), 'no-edge-tts', False);
+#endif
   Marker := ExpandConstant('{app}\previous-version.txt');
   if not HasPriorVersion then
   begin

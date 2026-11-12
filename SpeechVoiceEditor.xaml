@@ -29,23 +29,21 @@
       <TextBlock Text="{local:Ui SpeechVoiceName}" Style="{StaticResource FieldLabel}"/>
       <TextBox x:Name="VoiceProfileName" Margin="0,0,0,10"/>
       <TextBlock Text="{local:Ui Provider}" Style="{StaticResource FieldLabel}"/>
-      <ComboBox x:Name="Engine">
-        <ComboBoxItem Content="Edge TTS"/>
-        <ComboBoxItem Content="{local:Ui WindowsVoice}"/>
-        <ComboBoxItem Content="{local:Ui CompatibleTtsProvider}"/>
-      </ComboBox>
+      <ComboBox x:Name="Engine" DisplayMemberPath="Name"/>
       <StackPanel x:Name="WindowsVoiceOptions">
         <TextBlock Text="{local:Ui VoiceLanguage}" Margin="0,10,0,4"/>
         <ComboBox x:Name="WindowsLanguage" DisplayMemberPath="Name" SelectedValuePath="Code"/>
         <TextBlock Text="{local:Ui WindowsVoice}" Margin="0,10,0,4"/>
         <ComboBox x:Name="WindowsVoice" DisplayMemberPath="DisplayName" SelectedValuePath="Id"/>
       </StackPanel>
-      <StackPanel x:Name="EdgeVoiceOptions" Visibility="Collapsed">
+      <StackPanel x:Name="PluginVoiceOptions" Visibility="Collapsed">
         <TextBlock Text="{local:Ui VoiceLanguage}" Margin="0,10,0,4"/>
-        <ComboBox x:Name="EdgeLanguage" DisplayMemberPath="Name" SelectedValuePath="Code"/>
-        <TextBlock Text="{local:Ui EdgeTTSVoice}" Margin="0,10,0,4"/>
-        <ComboBox x:Name="EdgeVoice" DisplayMemberPath="FriendlyName" SelectedValuePath="ShortName"/>
-        <TextBlock x:Name="EdgeCatalogStatus" Margin="0,6,0,0" TextWrapping="Wrap"/>
+        <ComboBox x:Name="PluginLanguage" DisplayMemberPath="Name" SelectedValuePath="Code"/>
+        <TextBlock Text="{local:Ui TtsVoice}" Margin="0,10,0,4"/>
+        <ComboBox x:Name="PluginVoice" DisplayMemberPath="Name" IsEditable="True" TextSearch.TextPath="Id"/>
+        <TextBlock x:Name="PluginOptionsLabel" Margin="0,10,0,4"/>
+        <TextBox x:Name="PluginOptions"/>
+        <TextBlock x:Name="PluginCatalogStatus" Margin="0,6,0,0" TextWrapping="Wrap"/>
       </StackPanel>
       <StackPanel x:Name="CompatibleTtsOptions" Visibility="Collapsed">
         <TextBlock Text="{local:Ui TtsEndpoint}" Margin="0,10,0,4"/>
