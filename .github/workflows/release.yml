@@ -39,7 +39,11 @@ jobs:
           version="${RELEASE_TAG#v}.0"
           with_edge="release/APEX-Chatd-Setup-${version}-edge-tts-x64.exe"
           without_edge="release/APEX-Chatd-Setup-${version}-x64.exe"
+          portable_with_edge="release/APEX-Chatd-Portable-${version}-edge-tts-x64.zip"
+          portable_without_edge="release/APEX-Chatd-Portable-${version}-x64.zip"
           test -f "$with_edge"
           test -f "$without_edge"
-          gh release create "$RELEASE_TAG" "$with_edge#Windows x64 with Edge TTS" \
-            "$without_edge#Windows x64 without Edge TTS" --verify-tag --title "APEX ChatD $RELEASE_TAG" --generate-notes
+          test -f "$portable_with_edge"
+          test -f "$portable_without_edge"
+          gh release create "$RELEASE_TAG" "$without_edge" "$with_edge" \
+            "$portable_without_edge" "$portable_with_edge" --verify-tag --title "APEX ChatD $RELEASE_TAG" --generate-notes

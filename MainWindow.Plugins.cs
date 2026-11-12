@@ -154,10 +154,13 @@ public partial class MainWindow
                 ChangePlugins(() => plugins.SetEnabled(entry, !enabled));
             };
             actions.Children.Add(toggle);
-            var remove = new Button { Margin = new Thickness(0, 0, 8, 4) };
-            SetPluginAction(remove, "\uE74D", P("Удалить", "Remove"));
-            remove.Click += (_, _) => ChangePlugins(() => plugins.Remove(entry));
-            actions.Children.Add(remove);
+            if (!entry.Bundled)
+            {
+                var remove = new Button { Margin = new Thickness(0, 0, 8, 4) };
+                SetPluginAction(remove, "\uE74D", P("Удалить", "Remove"));
+                remove.Click += (_, _) => ChangePlugins(() => plugins.Remove(entry));
+                actions.Children.Add(remove);
+            }
             if (entry.ValidPayload && PluginManager.TryHttps(manifest?.UpdateUrl, out var url))
             {
                 var check = new Button { Margin = new Thickness(0, 0, 8, 4) };

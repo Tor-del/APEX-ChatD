@@ -6,7 +6,7 @@ APEX Chatd is a Windows tray app for your Twitch chat. It can display chat in a 
 
 ## Install and update
 
-Download either x64 installer from [GitHub Releases](https://github.com/Tor-del/APEX-ChatD/releases). The file ending in `-edge-tts-x64.exe` includes the optional Edge TTS plugin. It includes the .NET runtime and offers an option to start minimized when you sign in to Windows. Your preferences and Twitch session are stored separately in `%LOCALAPPDATA%\TwitchChatAgent`.
+Download either x64 installer from [GitHub Releases](https://github.com/Tor-del/APEX-ChatD/releases). The file ending in `-edge-tts-x64.exe` includes the optional Edge TTS plugin. To run without installing, extract the matching `APEX-Chatd-Portable-*.zip` and open `APEX Chatd.exe`. It includes the .NET runtime and offers an option to start minimized when you sign in to Windows. Your preferences and Twitch session are stored separately in `%LOCALAPPDATA%\TwitchChatAgent`.
 
 The GitHub installer includes the GitHub Updater plugin with automatic checks enabled by default. Select **Check for updates** on the **Updates** tab for a manual check. For an Inno Setup installation, **Install** downloads and verifies the update, closes APEX Chatd, and launches the new version after installation. **Remind me later** postpones the prompt for 24 hours. **Skip this version** hides automatic reminders for that version. A manual check still shows available updates.
 

@@ -12,7 +12,11 @@ if (-not (Test-Path -LiteralPath $Compiler -PathType Leaf)) {
 }
 
 $project = Join-Path $PSScriptRoot '..\TwitchChatAgent.csproj'
-$payload = Join-Path $PSScriptRoot '..\bin\InstallerPayload'
+$packageRoot = Join-Path (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path "bin\PluginPackages\$([Guid]::NewGuid().ToString('N'))"
+$payload = Join-Path $packageRoot 'App'
+$app = [xml](Get-Content -LiteralPath $project -Raw)
+$version = [version]$app.Project.PropertyGroup.Version
+$fileVersion = "$($version.ToString(3)).0"
 $publishArguments = @('publish', $project, '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true',
     '-p:DebugType=None', '-p:DebugSymbols=false', '-o', $payload)
 if ($PluginApprovalPublicKey) {
@@ -34,11 +38,9 @@ if ($PluginSigningKey) {
         $publicKey.Dispose()
     }
 }
-$packageRoot = Join-Path $PSScriptRoot "..\bin\PluginPackages\$([Guid]::NewGuid().ToString('N'))"
 $edgePayload = $null
 if ($EdgePluginZip) {
     $sdk = [xml](Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\PluginSdk\Chatd.PluginSdk.csproj') -Raw)
-    $app = [xml](Get-Content -LiteralPath $project -Raw)
     $edgePayload = Join-Path $packageRoot 'EdgeTts'
     & (Join-Path $PSScriptRoot 'Import-EdgePlugin.ps1') -Zip $EdgePluginZip -Destination $edgePayload `
         -PublicKey $publicKeyPath -ApiVersion $sdk.Project.PropertyGroup.Version -AppVersion $app.Project.PropertyGroup.Version
@@ -52,8 +54,36 @@ $updaterPayload = Join-Path $packageRoot 'GitHubUpdater'
 & $packageBuilder -Project (Join-Path $PSScriptRoot '..\Plugins\GitHubUpdater\GitHubUpdater.csproj') -OutputDirectory $updaterPayload -SigningKey $PluginSigningKey
 
 $updaterPayload = (Resolve-Path -LiteralPath $updaterPayload).Path
-$compilerArguments = @("/DUpdaterPayload=$updaterPayload")
+$compilerArguments = @("/DPayload=$payload", "/DUpdaterPayload=$updaterPayload")
 if ($edgePayload) { $compilerArguments += "/DEdgePayload=$edgePayload" }
 $compilerArguments += Join-Path $PSScriptRoot 'APEXChatd.iss'
 & $Compiler @compilerArguments
-exit $LASTEXITCODE
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+$bundled = Join-Path $payload 'BundledPlugins'
+[void][IO.Directory]::CreateDirectory($bundled)
+Copy-Item -LiteralPath $updaterPayload -Destination (Join-Path $bundled 'apexchatd.github-updater') -Recurse
+$suffix = '-x64'
+$variant = 'no-edge-tts'
+if ($edgePayload) {
+    Copy-Item -LiteralPath $edgePayload -Destination (Join-Path $bundled 'apexchatd.edge-tts') -Recurse
+    $suffix = '-edge-tts-x64'
+    $variant = 'edge-tts'
+}
+[IO.File]::WriteAllText((Join-Path $payload 'installer-variant.txt'), $variant)
+$source = Join-Path $payload 'source'
+[void][IO.Directory]::CreateDirectory($source)
+$vendor = Join-Path $PSScriptRoot '..\Vendor'
+foreach ($item in @('THIRD-PARTY-NOTICES.md', 'Directory.Build.props', 'licenses')) {
+    Copy-Item -LiteralPath (Join-Path $vendor $item) -Destination $source -Recurse
+}
+$speechSource = Join-Path $source 'ScreenReader.Speech'
+[void][IO.Directory]::CreateDirectory($speechSource)
+Get-ChildItem -LiteralPath (Join-Path $vendor 'ScreenReader.Speech') -File |
+    Where-Object Extension -in '.cs', '.csproj' | Copy-Item -Destination $speechSource
+
+$archive = Join-Path $PSScriptRoot "..\bin\Setup\APEX-Chatd-Portable-$fileVersion$suffix.zip"
+$temporaryArchive = Join-Path $packageRoot 'portable.zip'
+[IO.Compression.ZipFile]::CreateFromDirectory($payload, $temporaryArchive, [IO.Compression.CompressionLevel]::Fastest, $false)
+[IO.File]::Move($temporaryArchive, $archive, $true)
+Write-Output "Built $archive"

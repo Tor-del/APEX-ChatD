@@ -1,6 +1,11 @@
 #define AppName "APEX ChatD"
 #define AppExe "APEX Chatd.exe"
-#define Payload SourcePath + "..\bin\InstallerPayload"
+#ifndef Payload
+  #error "Build this installer with installer/build.ps1"
+#endif
+#ifndef UpdaterPayload
+  #error "GitHub Updater payload is required"
+#endif
 #define AppVersion GetVersionNumbersString(Payload + "\" + AppExe)
 
 [Setup]
@@ -53,9 +58,7 @@ Name: "edgetts"; Description: "{cm:EdgeTts}"
 
 [Files]
 Source: "{#Payload}\*"; DestDir: "{app}"; Excludes: "ScreenReader.Edge.*,BundledPlugins\*"; Flags: ignoreversion recursesubdirs createallsubdirs
-#ifdef UpdaterPayload
 Source: "{#UpdaterPayload}\*"; DestDir: "{app}\BundledPlugins\apexchatd.github-updater"; Flags: ignoreversion recursesubdirs createallsubdirs
-#endif
 #ifdef EdgePayload
 Source: "{#EdgePayload}\*"; DestDir: "{app}\BundledPlugins\apexchatd.edge-tts"; Tasks: edgetts; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif

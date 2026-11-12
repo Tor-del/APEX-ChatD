@@ -70,7 +70,8 @@ internal sealed class PluginManager
     public IReadOnlyDictionary<string, ApexChatd.Plugins.SpeechProvider> Providers => providers;
     public IEnumerable<Shortcut> Shortcuts => active.SelectMany(context => context.Shortcuts.Values);
     public bool Enabled(Entry entry) => preferences.TryGetValue(entry.Key, out var value) ? value.Enabled : entry.Bundled;
-    private bool Removed(Entry entry) => preferences.TryGetValue(entry.Key, out var value) && value.Removed;
+    private bool Removed(Entry entry) => !entry.Bundled &&
+        preferences.TryGetValue(entry.Key, out var value) && value.Removed;
     public static string OpenablePackageDirectory()
     {
         Directory.CreateDirectory(Packages);
@@ -88,21 +89,18 @@ internal sealed class PluginManager
             var entry = new Entry(path, bundled);
             if (Removed(entry))
             {
-                if (!bundled)
+                try
                 {
-                    try
-                    {
-                        // Only remove direct children of the per-user plugin directory.
-                        if (!string.Equals(Path.GetDirectoryName(Path.GetFullPath(path)), Packages, StringComparison.OrdinalIgnoreCase))
-                            throw new InvalidDataException("Invalid plugin directory.");
-                        RejectLink(path);
-                        Directory.Delete(path, recursive: true);
-                        Change(entry, null);
-                    }
-                    catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
-                    {
-                        Trace.TraceError(ex.ToString());
-                    }
+                    // Only remove direct children of the per-user plugin directory.
+                    if (!string.Equals(Path.GetDirectoryName(Path.GetFullPath(path)), Packages, StringComparison.OrdinalIgnoreCase))
+                        throw new InvalidDataException("Invalid plugin directory.");
+                    RejectLink(path);
+                    Directory.Delete(path, recursive: true);
+                    Change(entry, null);
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)
+                {
+                    Trace.TraceError(ex.ToString());
                 }
                 continue;
             }
@@ -240,7 +238,11 @@ internal sealed class PluginManager
     }
 
     public void SetEnabled(Entry entry, bool enabled) => Change(entry, new(enabled, false));
-    public void Remove(Entry entry) => Change(entry, new(false, true));
+    public void Remove(Entry entry)
+    {
+        if (entry.Bundled) throw new InvalidOperationException("Bundled plugins can be disabled.");
+        Change(entry, new(false, true));
+    }
 
     private void Change(Entry entry, Preference? value)
     {

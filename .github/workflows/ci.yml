@@ -79,10 +79,12 @@ jobs:
           } finally {
             [IO.File]::Delete($keyPath)
           }
-      - name: Upload installer
+      - name: Upload installer and portable ZIP
         uses: actions/upload-artifact@v6
         with:
           name: APEX-ChatD-win-x64-${{ matrix.edge }}
-          path: bin/Setup/APEX-Chatd-Setup-*-x64.exe
+          path: |
+            bin/Setup/APEX-Chatd-Setup-*-x64.exe
+            bin/Setup/APEX-Chatd-Portable-*-x64.zip
           if-no-files-found: error
           retention-days: 14
