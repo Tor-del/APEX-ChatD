@@ -80,7 +80,7 @@ jobs:
             [IO.File]::Delete($keyPath)
           }
       - name: Upload installer and portable ZIP
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: APEX-ChatD-win-x64-${{ matrix.edge }}
           path: |
