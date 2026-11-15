@@ -23,7 +23,9 @@ internal sealed record ChatMessage(string Name, string Text,
 
 internal sealed record TwitchModeration(string ClientId, string Token, string ChannelId, bool CanDelete)
 {
-    internal bool RefreshRequested { get; set; }
+    private readonly TaskCompletionSource refreshRequested = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    internal Task RefreshRequested => refreshRequested.Task;
+    internal void RequestRefresh() => refreshRequested.TrySetResult();
 
     public bool Allows(ChatMessage message) => BlockedReason(message) is null;
 
@@ -54,7 +56,8 @@ internal sealed class TwitchClient
     private const string Identity = "https://id.twitch.tv/oauth2/";
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
     private static readonly Uri Gateway = new("wss://eventsub.wss.twitch.tv/ws");
-    private static readonly TimeSpan RefreshLeadTime = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan RefreshLeadTime = TimeSpan.FromMinutes(2);
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(5);
     private const string ChatMessageEvent = "channel.chat.message";
     private const string ChatDeleteEvent = "channel.chat.message_delete";
     private const string ChatClearUserEvent = "channel.chat.clear_user_messages";
@@ -121,6 +124,8 @@ internal sealed class TwitchClient
         var seen = new HashSet<string>();
         var order = new Queue<string>();
         var forceRefresh = false;
+        var awaitingValidation = false;
+        var validationRejections = 0;
         while (!ct.IsCancellationRequested)
         {
             try
@@ -129,18 +134,23 @@ internal sealed class TwitchClient
                 await ListenAsync(account, AuthorizeAsync, status, setModeration, HandleNotification, ct);
             }
             catch (Exception ex) when (!ct.IsCancellationRequested &&
-                ex is HttpRequestException or WebSocketException or IOException or OperationCanceledException)
+                ex is HttpRequestException or WebSocketException or IOException or OperationCanceledException or JsonException)
             {
                 if (ex is HttpRequestException { StatusCode: HttpStatusCode.Unauthorized })
                     forceRefresh = true;
                 setModeration(null);
                 status(Ui.T("Соединение прервано. Повторное подключение через 5 секунд…"));
-                await Task.Delay(TimeSpan.FromSeconds(5), ct);
+                await Task.Delay(RetryDelay, ct);
             }
         }
 
         async Task<Account> AuthorizeAsync(bool refresh)
         {
+            // A successful exchange consumes the old refresh token. Confirm the new
+            // access token before considering another exchange, even after reconnecting.
+            if (awaitingValidation)
+                return await ConfirmRefreshAsync();
+
             var account = refresh ? null : await GetAccountAsync(clientId, tokens.Access, ct);
             if (account is not null && account.ExpiresAt - DateTimeOffset.UtcNow > RefreshLeadTime)
                 return account;
@@ -153,12 +163,30 @@ internal sealed class TwitchClient
             if (response.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
                 throw SignInRequired();
             response.EnsureSuccessStatusCode();
-            tokens = (await ReadAsync(response, ct)).Deserialize<TwitchTokens>()!;
+            var renewed = (await ReadAsync(response, ct)).Deserialize<TwitchTokens>();
+            if (renewed is null || string.IsNullOrWhiteSpace(renewed.Access) || string.IsNullOrWhiteSpace(renewed.Refresh))
+                throw new IOException(Ui.T("Twitch вернул неполные данные для входа."));
             ct.ThrowIfCancellationRequested();
+            tokens = renewed;
             save(tokens);
             forceRefresh = false;
-            return await GetAccountAsync(clientId, tokens.Access, ct)
-                ?? throw new TwitchSignInRequiredException(Ui.T("Twitch не принял обновлённый токен."));
+            awaitingValidation = true;
+            validationRejections = 0;
+            return await ConfirmRefreshAsync();
+        }
+
+        async Task<Account> ConfirmRefreshAsync()
+        {
+            var account = await GetAccountAsync(clientId, tokens.Access, ct);
+            if (account is null)
+            {
+                if (++validationRejections >= 3)
+                    throw new TwitchSignInRequiredException(Ui.T("Twitch не принял обновлённый токен."));
+                throw new IOException(Ui.T("Twitch не принял обновлённый токен."));
+            }
+            awaitingValidation = false;
+            forceRefresh = false;
+            return account;
         }
 
         bool Remember(string id)
@@ -207,7 +235,9 @@ internal sealed class TwitchClient
         Action<string, string, string, JsonElement> notify, CancellationToken ct)
     {
         using var initial = await ConnectAsync(Gateway, ct);
+        using var listening = CancellationTokenSource.CreateLinkedTokenSource(ct);
         ClientWebSocket socket = initial;
+        Task<JsonElement>? receive = null;
         try
         {
             var welcome = await ReceiveAsync(socket, 10, ct);
@@ -222,32 +252,45 @@ internal sealed class TwitchClient
                 SubscribeAsync(moderation, sessionId, ChatClearEvent, ct));
             status(Ui.F("Читаем чат twitch.tv/{0}", account.Login));
             setModeration(moderation);
-            var nextCheck = account.NextCheck;
+            var nextCheck = DelayUntil(account.NextCheck, listening.Token);
+            Task refreshRequested = moderation.RefreshRequested;
 
             while (true)
             {
-                if (moderation.RefreshRequested || DateTimeOffset.UtcNow >= nextCheck)
+                ct.ThrowIfCancellationRequested();
+                receive ??= ReceiveAsync(socket, timeout + 3, listening.Token);
+                await Task.WhenAny(receive, nextCheck, refreshRequested);
+                if (nextCheck.IsCompleted || refreshRequested.IsCompleted)
                 {
                     try
                     {
-                        account = await authorize(moderation.RefreshRequested);
-                        if (account.Session != moderation)
+                        var refresh = moderation.RefreshRequested.IsCompleted;
+                        account = await authorize(refresh);
+                        if (refresh ||
+                            account.Session.Token != moderation.Token ||
+                            account.Session.ChannelId != moderation.ChannelId ||
+                            account.Session.CanDelete != moderation.CanDelete)
                         {
                             moderation = account.Session;
                             setModeration(moderation);
                         }
-                        nextCheck = account.NextCheck;
+                        nextCheck = DelayUntil(account.NextCheck, listening.Token);
+                        refreshRequested = moderation.RefreshRequested;
                     }
-                    catch (Exception ex) when (!ct.IsCancellationRequested && !moderation.RefreshRequested &&
+                    catch (Exception ex) when (!ct.IsCancellationRequested &&
                         DateTimeOffset.UtcNow < account.ExpiresAt &&
-                        ex is HttpRequestException or IOException or OperationCanceledException)
+                        ex is HttpRequestException or IOException or OperationCanceledException or JsonException)
                     {
-                        // Keep receiving events while the existing token is still usable.
-                        nextCheck = DateTimeOffset.UtcNow.AddSeconds(5);
+                        // Keep the chat open and coalesce further refresh requests until the retry.
+                        nextCheck = Task.Delay(RetryDelay, listening.Token);
+                        refreshRequested = nextCheck;
                     }
                 }
 
-                var frame = await ReceiveAsync(socket, timeout + 3, ct);
+                if (!receive.IsCompleted)
+                    continue;
+                var frame = await receive;
+                receive = null;
                 var metadata = frame.GetProperty("metadata");
                 var payload = frame.GetProperty("payload");
                 switch (metadata.GetProperty("message_type").GetString())
@@ -277,16 +320,27 @@ internal sealed class TwitchClient
                         break;
                     case "revocation":
                         if (payload.GetProperty("subscription").GetProperty("status").GetString() == "authorization_revoked")
-                            throw new HttpRequestException(null, null, HttpStatusCode.Unauthorized);
+                            // The subscription may have been created with an older access token.
+                            // Reopen it after validating the current token.
+                            throw new IOException();
                         throw new InvalidOperationException(Ui.T("Twitch отозвал подписку. Подключи аккаунт заново."));
                 }
             }
         }
         finally
         {
+            listening.Cancel();
             if (socket != initial)
                 socket.Dispose();
+            if (receive is not null)
+                await ((Task)receive).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
         }
+    }
+
+    private static Task DelayUntil(DateTimeOffset time, CancellationToken ct)
+    {
+        var delay = time - DateTimeOffset.UtcNow;
+        return delay > TimeSpan.Zero ? Task.Delay(delay, ct) : Task.CompletedTask;
     }
 
     private static async Task SubscribeAsync(TwitchModeration session, string sessionId, string type, CancellationToken ct)
@@ -315,7 +369,7 @@ internal sealed class TwitchClient
         request.Headers.Add("Client-Id", session.ClientId);
         using var response = await Http.SendAsync(request, ct);
         if (response.StatusCode == HttpStatusCode.Unauthorized)
-            session.RefreshRequested = true;
+            session.RequestRefresh();
         response.EnsureSuccessStatusCode();
         var body = await ReadAsync(response, ct);
         return body.GetProperty("data").EnumerateArray().Any(stream => stream.GetProperty("type").GetString() == "live");
@@ -336,7 +390,7 @@ internal sealed class TwitchClient
 
         using var response = await Http.SendAsync(request, ct);
         if (response.StatusCode == HttpStatusCode.Unauthorized)
-            session.RefreshRequested = true;
+            session.RequestRefresh();
         if (!response.IsSuccessStatusCode)
         {
             var details = await ReadAsync(response, ct);

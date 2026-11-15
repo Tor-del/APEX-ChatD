@@ -317,6 +317,7 @@ internal static class Ui
         ["Twitch отклонил активацию: {0}"] = "Twitch rejected activation: {0}",
         ["Сессия Twitch истекла. Подключи аккаунт заново."] = "Your Twitch session expired. Connect your account again.",
         ["Twitch не принял обновлённый токен."] = "Twitch rejected the refreshed token.",
+        ["Twitch вернул неполные данные для входа."] = "Twitch returned incomplete sign-in data.",
         ["Не удалось сохранить обновлённый вход Twitch. После перезапуска может потребоваться повторный вход."] = "Could not save the refreshed Twitch sign-in. You may need to sign in again after restarting.",
         ["Токен Twitch не соответствует настройкам приложения."] = "The Twitch token does not match the application settings.",
         ["Соединение прервано. Повторное подключение через 5 секунд…"] = "Connection interrupted. Reconnecting in 5 seconds…",
