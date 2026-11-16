@@ -32,6 +32,8 @@ Add voice profiles using Windows voices, an OpenAI-compatible speech endpoint, o
 
 Set speed, an audio preset, pitch, and formants on each profile. Volume and the output device apply to all profiles. URLs are excluded from spoken messages, and messages starting with `!` are skipped by default. **Controls** lets you assign global shortcuts for pause or resume, skip, and clear queue. Use **Test message** on the Twitch tab to exercise the chat and speech pipeline without connecting a channel.
 
+Speech removes decorative symbols and Unicode emoji. Messages with no letters or numbers left, such as `[] !!!`, are skipped. Enable **Try to read each message for up to 1 minute** to retry failed messages. When the minute expires, the queue moves on. Audio that has already started can finish playing.
+
 ## Interface language
 
 Russian and English are built in. To add a language, place a UTF-8 JSON file named after its language tag, such as `fr.json`, in `%LOCALAPPDATA%\TwitchChatAgent\Locales` and restart APEX Chatd. Use a `name` field for the language name and a `strings` object for translations. XAML labels use keys from `Labels` in [Ui.cs](Ui.cs). Messages from code use their original Russian text as the key. The [Russian README](README.ru.md#язык-интерфейса) includes an example.

@@ -218,7 +218,7 @@
                          Margin="0,6,0,0" TextWrapping="Wrap"/>
             </StackPanel>
             <CheckBox x:Name="SkipSpeechEmotes" Content="{local:Ui SkipSpeechEmotes}" Margin="0,0,0,12"/>
-            <CheckBox x:Name="RetrySpeech" Content="{local:Ui RetryFailedMessagesIndefinitely}" Margin="0,0,0,12"/>
+            <CheckBox x:Name="RetrySpeech" Content="{local:Ui RetryFailedMessagesForOneMinute}" Margin="0,0,0,12"/>
             <Border Style="{StaticResource SettingsSection}" Padding="14,12" Margin="0,0,0,8"
                     Background="{DynamicResource FluentBackdrop}">
               <StackPanel>

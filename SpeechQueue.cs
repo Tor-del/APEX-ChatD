@@ -9,6 +9,8 @@ namespace TwitchChatAgent;
 
 internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Action<string> status)
 {
+    private static readonly TimeSpan RetryLimit = TimeSpan.FromMinutes(1);
+    private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(5);
     private readonly Queue<ChatMessage> pending = new();
     private readonly Dictionary<string, Guid> pinnedVoices = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HttpClient compatibleHttp = new(new SocketsHttpHandler
@@ -39,7 +41,7 @@ internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Acti
         try
         {
             if (!paused) output?.Pause();
-            await PlaySpeechAsync(text, options, profile, ct, preview: true);
+            await PlaySpeechAsync(text, options, profile, ct, ct, preview: true);
         }
         finally
         {
@@ -186,49 +188,67 @@ internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Acti
 
     private async Task SpeakWithRetryAsync(ChatMessage message, CancellationToken ct)
     {
+        using var retryWindow = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        retryWindow.CancelAfter(RetryLimit);
         Guid? selectedVoice = null;
-        do
+        string? error = null;
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            try
+            do
             {
+                ct.ThrowIfCancellationRequested();
                 var currentOptions = options;
                 if (currentOptions.SpeechVoices.Length == 0)
                     return;
-                var voice = Array.Find(currentOptions.SpeechVoices, profile => profile.Id == selectedVoice) ?? ChooseVoice(message);
-                selectedVoice = voice.Id;
-                var text = !currentOptions.ReadName ? message.Text
-                    : string.IsNullOrWhiteSpace(currentOptions.ReadNamePhrase) ? $"{message.Name}: {message.Text}"
-                    : $"{message.Name} {currentOptions.ReadNamePhrase} {message.Text}";
-                await PlaySpeechAsync(text, currentOptions, voice, ct);
-                lastError = null;
-                Report();
-                return;
-            }
-            catch (Exception ex) when (!ct.IsCancellationRequested)
-            {
-                lastError = options.RetrySpeech ? Ui.F("{0} · Повторяем через 5 секунд", ex.Message) : ex.Message;
-                Report();
-                if (!options.RetrySpeech)
+                var synthesisCt = currentOptions.RetrySpeech ? retryWindow.Token : ct;
+                try
+                {
+                    var voice = Array.Find(currentOptions.SpeechVoices, profile => profile.Id == selectedVoice) ?? ChooseVoice(message);
+                    selectedVoice = voice.Id;
+                    var text = message.Text;
+                    if (currentOptions.ReadName && SpeechTextFilter.CleanForSpeech(message.Name) is { Length: > 0 } name)
+                    {
+                        var phrase = SpeechTextFilter.CleanForSpeech(currentOptions.ReadNamePhrase);
+                        text = phrase.Length == 0 ? $"{name}: {text}" : $"{name} {phrase} {text}";
+                    }
+                    await PlaySpeechAsync(text, currentOptions, voice, ct, synthesisCt);
+                    lastError = null;
+                    Report();
                     return;
-            }
+                }
+                catch (Exception ex) when (!ct.IsCancellationRequested)
+                {
+                    error = ex is OperationCanceledException && synthesisCt.IsCancellationRequested
+                        ? Ui.T("Истекла минута на озвучивание сообщения.") : ex.Message;
+                }
 
-            await Task.Delay(TimeSpan.FromSeconds(5), ct);
-            while ((paused || previewing) && options.RetrySpeech)
-                await Task.Delay(200, ct);
-        } while (options.RetrySpeech);
+                if (!options.RetrySpeech || retryWindow.IsCancellationRequested)
+                    break;
+                lastError = Ui.F("{0} · Повторяем через 5 секунд", error);
+                Report();
+
+                await Task.Delay(RetryDelay, retryWindow.Token);
+                while ((paused || previewing) && options.RetrySpeech)
+                    await Task.Delay(200, retryWindow.Token);
+            } while (options.RetrySpeech && !retryWindow.IsCancellationRequested);
+        }
+        catch (OperationCanceledException) when (retryWindow.IsCancellationRequested && !ct.IsCancellationRequested) { }
+
+        lastError = error;
+        Report();
     }
 
     private async Task PlaySpeechAsync(string text, Settings settings, SpeechVoiceProfile profile, CancellationToken ct,
-        bool preview = false)
+        CancellationToken synthesisCt, bool preview = false)
     {
+        synthesisCt.ThrowIfCancellationRequested();
         using var bytes = new MemoryStream();
         var format = SpeechAudioFormat.Wave;
         if (profile.ExtensionProviderId is { } id)
         {
             var provider = findProvider(id) ?? throw new InvalidOperationException(Ui.T("Провайдер недоступен."));
             var request = new ApexChatd.Plugins.SpeechRequest(text, profile.Voice, profile.Language, profile.Rate, profile.ProviderOptions);
-            var result = await provider.SynthesizeAsync(request, bytes, ct);
+            var result = await provider.SynthesizeAsync(request, bytes, synthesisCt);
             format = result switch
             {
                 ApexChatd.Plugins.AudioFormat.Wave => SpeechAudioFormat.Wave,
@@ -242,8 +262,8 @@ internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Acti
                 new(profile.Endpoint, profile.Model, profile.ReadApiKey(), profile.Format), compatibleHttp);
             format = client.AudioFormat;
             var request = new SpeechRequest(text, profile.Voice, "", profile.Rate);
-            await foreach (var chunk in client.StreamAsync(request, ct))
-                await bytes.WriteAsync(chunk, ct);
+            await foreach (var chunk in client.StreamAsync(request, synthesisCt))
+                await bytes.WriteAsync(chunk, synthesisCt);
         }
         else
         {
@@ -252,12 +272,12 @@ internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Acti
             if (voice is not null)
                 synth.Voice = voice;
             synth.Options.SpeakingRate = Math.Clamp(1 + profile.Rate / 100.0, 0.5, 2);
-            using var audio = await synth.SynthesizeTextToStreamAsync(text).AsTask(ct);
+            using var audio = await synth.SynthesizeTextToStreamAsync(text).AsTask(synthesisCt);
             using var stream = audio.AsStreamForRead();
-            await stream.CopyToAsync(bytes, ct);
+            await stream.CopyToAsync(bytes, synthesisCt);
         }
 
-        ct.ThrowIfCancellationRequested();
+        synthesisCt.ThrowIfCancellationRequested();
         bytes.Position = 0;
         using WaveStream reader = format == SpeechAudioFormat.Mp3 ? new Mp3FileReader(bytes) : new WaveFileReader(bytes);
         var decoded = reader.ToSampleProvider();
@@ -265,9 +285,9 @@ internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Acti
         var formant = profile.Formant;
         var fft = profile.Intensity > 0 && SpeechFftFilter.Supports(profile.Effect);
         var samples = fft || pitch != 0 || formant != 0
-            ? await Task.Run(() => SpeechVoiceTransform.Apply(ApplyEffect(), pitch, formant, ct), ct)
+            ? await Task.Run(() => SpeechVoiceTransform.Apply(ApplyEffect(), pitch, formant, synthesisCt), synthesisCt)
             : ApplyEffect();
-        ct.ThrowIfCancellationRequested();
+        synthesisCt.ThrowIfCancellationRequested();
         using var device = AudioOutputDevices.Resolve(settings.AudioOutputId);
         using var player = new WasapiOut(device, AudioClientShareMode.Shared, true, 100);
         var finished = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -283,6 +303,7 @@ internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Acti
             Volume = Math.Clamp(settings.Volume, 0, 100) * Math.Clamp(profile.Volume, 0, 200) / 10_000f
         };
         player.Init(gain.ToWaveProvider());
+        synthesisCt.ThrowIfCancellationRequested();
         if (!preview) output = player;
         try
         {
@@ -297,7 +318,7 @@ internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Acti
         }
 
         ISampleProvider ApplyEffect() => fft
-            ? SpeechFftFilter.Apply(decoded, profile.Effect, profile.Intensity, ct)
+            ? SpeechFftFilter.Apply(decoded, profile.Effect, profile.Intensity, synthesisCt)
             : SpeechEffectSampleProvider.Apply(decoded, profile.Effect, profile.Intensity, profile.RadioNoise);
     }
 
