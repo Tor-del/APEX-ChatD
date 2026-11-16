@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private readonly Forms.ToolStripMenuItem trayQueue;
     private ChatOverlay? overlay;
     private CancellationTokenSource? twitch;
+    private Uri? twitchActivationUri;
     private bool editingOverlay;
     private bool exiting;
     private bool obsChanging;
@@ -327,37 +328,50 @@ public partial class MainWindow : Window
         {
             return await TwitchClient.SignInAsync(clientId, (url, code) =>
             {
-                CopyTwitchActivationButton.Tag = url;
-                CopyTwitchActivationButton.Visibility = Visibility.Visible;
+                twitchActivationUri = url;
                 TwitchStatus.Text = Ui.F("Подтверди доступ в браузере. Код: {0}", code);
-                try
-                {
-                    using var browser = Process.Start(new ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
-                }
-                catch (Win32Exception)
-                {
-                    TwitchStatus.Text = Ui.F("Не удалось открыть браузер. Скопируй ссылку и открой её вручную. Код: {0}", code);
-                }
+                TwitchActivationNotice.Visibility = Visibility.Visible;
+                OpenTwitchActivation(url);
             }, ct);
         }
         finally
         {
-            CopyTwitchActivationButton.Visibility = Visibility.Collapsed;
-            CopyTwitchActivationButton.Tag = null;
+            TwitchActivationNotice.Visibility = Visibility.Collapsed;
+            twitchActivationUri = null;
+        }
+    }
+
+    private void OpenTwitchActivationClicked(object sender, RoutedEventArgs e)
+    {
+        if (twitchActivationUri is { } url && twitch?.IsCancellationRequested == false)
+            OpenTwitchActivation(url);
+    }
+
+    private void OpenTwitchActivation(Uri url)
+    {
+        try
+        {
+            using var browser = Process.Start(new ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
+            TwitchActivationHint.Text = Ui.T("Браузер не открылся? Попробуй открыть ссылку ещё раз или скопируй её для ручного открытия.");
+        }
+        catch (Win32Exception)
+        {
+            TwitchActivationHint.Text = Ui.T("Не удалось открыть браузер. Скопируй ссылку и вставь её в адресную строку браузера.");
         }
     }
 
     private void CopyTwitchActivationClicked(object sender, RoutedEventArgs e)
     {
-        if (CopyTwitchActivationButton.Tag is not Uri url || twitch is null || twitch.IsCancellationRequested)
+        if (twitchActivationUri is not { } url || twitch?.IsCancellationRequested != false)
             return;
         try
         {
             Clipboard.SetText(url.AbsoluteUri);
+            TwitchActivationHint.Text = Ui.T("Ссылка скопирована. Вставь её в адресную строку браузера.");
         }
-        catch (System.Runtime.InteropServices.ExternalException ex)
+        catch (System.Runtime.InteropServices.ExternalException)
         {
-            MessageBox.Show(this, ex.Message, "Twitch", MessageBoxButton.OK, MessageBoxImage.Error);
+            TwitchActivationHint.Text = Ui.T("Не удалось скопировать ссылку. Попробуй ещё раз.");
         }
     }
 

@@ -93,8 +93,26 @@
             <Button x:Name="DisconnectButton" Content="{local:Ui DisconnectCancel}" Click="DisconnectClicked"/>
           </WrapPanel>
           <TextBlock x:Name="TwitchStatus" Margin="0,14,0,0" Text="{local:Ui TwitchIsDisconnected}" TextWrapping="Wrap"/>
-          <Button x:Name="CopyTwitchActivationButton" Content="{local:Ui CopyLink}" Visibility="Collapsed"
-                  HorizontalAlignment="Left" Click="CopyTwitchActivationClicked"/>
+          <Border x:Name="TwitchActivationNotice" Style="{StaticResource SettingsSection}" Visibility="Collapsed"
+                  Margin="0,8,0,0" Padding="12,8" Background="{DynamicResource FluentBackdrop}">
+            <Grid>
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+              </Grid.ColumnDefinitions>
+              <TextBlock Text="&#xE946;" FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16"
+                         Foreground="{DynamicResource FluentAccent}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+              <TextBlock x:Name="TwitchActivationHint" Grid.Column="1" VerticalAlignment="Center" TextWrapping="Wrap"/>
+              <Button Grid.Column="2" Content="&#xE774;" Click="OpenTwitchActivationClicked"
+                      FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16" Width="42" Padding="0" Margin="12,0,0,0"
+                      ToolTip="{local:Ui OpenInBrowser}" AutomationProperties.Name="{local:Ui OpenInBrowser}"/>
+              <Button Grid.Column="3" Content="&#xE8C8;" Click="CopyTwitchActivationClicked"
+                      FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets" FontSize="16" Width="42" Padding="0" Margin="8,0,0,0"
+                      ToolTip="{local:Ui CopyLink}" AutomationProperties.Name="{local:Ui CopyLink}"/>
+            </Grid>
+          </Border>
           <TextBlock Text="{local:Ui RecentMessages}" Margin="0,16,0,8" FontWeight="SemiBold"/>
           <TextBlock x:Name="ModerationStatus" Margin="0,0,0,8" TextWrapping="Wrap"/>
           <ListBox x:Name="Recent" Height="290" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
