@@ -280,7 +280,7 @@ public partial class MainWindow : Window
         try
         {
             TwitchStatus.Text = Ui.T("Подключение…");
-            var tokens = saved ?? await TwitchClient.SignInAsync(clientId, SetTwitchStatus, cancellation.Token);
+            var tokens = saved ?? await SignInToTwitchAsync(clientId, cancellation.Token);
             cancellation.Token.ThrowIfCancellationRequested();
             if (saved is null)
                 Settings.SaveTokens(clientId, tokens);
@@ -317,6 +317,47 @@ public partial class MainWindow : Window
         {
             reconnectRequested = false;
             await RunTwitchAsync(null);
+        }
+    }
+
+    private async Task<TwitchTokens> SignInToTwitchAsync(string clientId, CancellationToken ct)
+    {
+        TwitchStatus.Text = Ui.T("Запрашиваем код входа у Twitch…");
+        try
+        {
+            return await TwitchClient.SignInAsync(clientId, (url, code) =>
+            {
+                CopyTwitchActivationButton.Tag = url;
+                CopyTwitchActivationButton.Visibility = Visibility.Visible;
+                TwitchStatus.Text = Ui.F("Подтверди доступ в браузере. Код: {0}", code);
+                try
+                {
+                    using var browser = Process.Start(new ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
+                }
+                catch (Win32Exception)
+                {
+                    TwitchStatus.Text = Ui.F("Не удалось открыть браузер. Скопируй ссылку и открой её вручную. Код: {0}", code);
+                }
+            }, ct);
+        }
+        finally
+        {
+            CopyTwitchActivationButton.Visibility = Visibility.Collapsed;
+            CopyTwitchActivationButton.Tag = null;
+        }
+    }
+
+    private void CopyTwitchActivationClicked(object sender, RoutedEventArgs e)
+    {
+        if (CopyTwitchActivationButton.Tag is not Uri url || twitch is null || twitch.IsCancellationRequested)
+            return;
+        try
+        {
+            Clipboard.SetText(url.AbsoluteUri);
+        }
+        catch (System.Runtime.InteropServices.ExternalException ex)
+        {
+            MessageBox.Show(this, ex.Message, "Twitch", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 

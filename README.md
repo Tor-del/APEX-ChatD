@@ -17,6 +17,8 @@ After an upgrade from 1.18.0 or later, **Roll back to the previous version** rei
 1. On the **Twitch** tab, select **Connect Twitch** and authorize access in your browser with your channel account.
 2. The app requests chat and moderation permissions. It renews the Twitch access token while running, stores the session with Windows DPAPI, and restores it on startup. Reconnect if Twitch revokes access or the session can no longer be renewed.
 
+If a sign-in code appears and the browser does not open, select **Copy link** and open it manually.
+
 Use **Refresh Twitch permissions** if you previously connected without moderation access. When permitted, **Delete** removes the message from Twitch and from the app's chat views and speech queue.
 
 ## Overlay and OBS

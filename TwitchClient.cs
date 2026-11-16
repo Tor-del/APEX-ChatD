@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
@@ -76,30 +75,42 @@ internal sealed class TwitchClient
         }
     }
 
-    public static async Task<TwitchTokens> SignInAsync(string clientId, Action<string> status, CancellationToken ct)
+    public static async Task<TwitchTokens> SignInAsync(string clientId, Action<Uri, string> activate, CancellationToken ct)
     {
         var scopes = $"{Scope} {DeleteScope}";
-        using var response = await PostAsync("device", ct, ("client_id", clientId), ("scopes", scopes));
-        response.EnsureSuccessStatusCode();
-        var device = await ReadAsync(response, ct);
-        var code = device.GetProperty("user_code").GetString();
-        var url = new Uri(device.GetProperty("verification_uri").GetString()!);
-        if (url.Scheme != "https" || url.Host != "www.twitch.tv")
+        JsonElement device;
+        try
+        {
+            using var response = await PostAsync("device", ct, ("client_id", clientId), ("scopes", scopes));
+            response.EnsureSuccessStatusCode();
+            device = await ReadAsync(response, ct);
+        }
+        catch (OperationCanceledException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new TimeoutException(Ui.T("Сервер входа Twitch (id.twitch.tv) не ответил вовремя."), ex);
+        }
+        catch (HttpRequestException ex) when (!ct.IsCancellationRequested)
+        {
+            throw new IOException(Ui.F("Не удалось получить код входа от id.twitch.tv: {0}", ex.Message), ex);
+        }
+        if (!Uri.TryCreate(device.GetProperty("verification_uri").GetString(), UriKind.Absolute, out var url) ||
+            url.Scheme != Uri.UriSchemeHttps || url.Host != "www.twitch.tv")
             throw new InvalidDataException(Ui.T("Неожиданный адрес страницы активации Twitch."));
-
-        status(Ui.F("Подтверди доступ в браузере. Код: {0}", code));
-        Process.Start(new ProcessStartInfo(url.AbsoluteUri) { UseShellExecute = true });
 
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
         deadline.CancelAfter(TimeSpan.FromSeconds(device.GetProperty("expires_in").GetInt32()));
         var pollToken = deadline.Token;
         var interval = Math.Max(1, device.GetProperty("interval").GetInt32());
+        var deviceCode = device.GetProperty("device_code").GetString()!;
+        var userCode = device.GetProperty("user_code").GetString()!;
+        pollToken.ThrowIfCancellationRequested();
+        activate(url, userCode);
         while (true)
         {
             await Task.Delay(TimeSpan.FromSeconds(interval), pollToken);
             using var poll = await PostAsync("token", pollToken,
                 ("client_id", clientId), ("scopes", scopes),
-                ("device_code", device.GetProperty("device_code").GetString()!),
+                ("device_code", deviceCode),
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"));
             var body = await ReadAsync(poll, pollToken);
             if (poll.IsSuccessStatusCode)

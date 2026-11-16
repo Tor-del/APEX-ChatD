@@ -93,6 +93,8 @@
             <Button x:Name="DisconnectButton" Content="{local:Ui DisconnectCancel}" Click="DisconnectClicked"/>
           </WrapPanel>
           <TextBlock x:Name="TwitchStatus" Margin="0,14,0,0" Text="{local:Ui TwitchIsDisconnected}" TextWrapping="Wrap"/>
+          <Button x:Name="CopyTwitchActivationButton" Content="{local:Ui CopyLink}" Visibility="Collapsed"
+                  HorizontalAlignment="Left" Click="CopyTwitchActivationClicked"/>
           <TextBlock Text="{local:Ui RecentMessages}" Margin="0,16,0,8" FontWeight="SemiBold"/>
           <TextBlock x:Name="ModerationStatus" Margin="0,0,0,8" TextWrapping="Wrap"/>
           <ListBox x:Name="Recent" Height="290" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
