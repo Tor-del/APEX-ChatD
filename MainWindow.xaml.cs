@@ -89,7 +89,7 @@ public partial class MainWindow : Window
             PauseQueueIcon.Text = speech!.Paused ? "\uE768" : "\uE769";
             PauseQueueLabel.Text = speech.Paused ? Ui.T("Продолжить") : Ui.T("Пауза");
             trayQueue.Text = Ui.F("В очереди: {0}", speech!.Count) + (speech.Paused ? Ui.T(" · Пауза") : "");
-        });
+        }, SaveVoiceAssignments);
 
         var themes = ((App)Application.Current).Themes;
         themes.Apply(settings.Theme);
@@ -955,7 +955,6 @@ public partial class MainWindow : Window
     private void PauseClicked(object sender, RoutedEventArgs e) => speech.TogglePause();
     private void SkipClicked(object sender, RoutedEventArgs e) => speech.Skip();
     private void ClearClicked(object sender, RoutedEventArgs e) => speech.Clear();
-    private void ResetPinnedVoicesClicked(object sender, RoutedEventArgs e) => speech.ResetPinnedVoices();
     private void ClearDisplayedClicked(object sender, RoutedEventArgs e) => ClearDisplayedMessages();
 
     private void ClearDisplayedMessages()

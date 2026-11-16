@@ -295,8 +295,45 @@
             </WrapPanel>
             <CheckBox x:Name="RandomSpeechVoice" Content="{local:Ui RandomSpeechVoice}" Margin="0,16,0,0"/>
             <CheckBox x:Name="PinSpeechVoice" Content="{local:Ui PinSpeechVoice}" Margin="16,6,0,0" Visibility="Collapsed"/>
-            <Button x:Name="ResetPinnedVoices" Content="{local:Ui ResetPinnedVoices}" Click="ResetPinnedVoicesClicked"
-                    Margin="16,6,0,0" HorizontalAlignment="Left" Visibility="Collapsed"/>
+            <Border x:Name="VoiceAssignmentsPanel" Style="{StaticResource SettingsSection}"
+                    Margin="16,10,0,0" Visibility="Collapsed">
+              <StackPanel>
+                <TextBlock Text="{local:Ui SpeechVoiceAssignments}" Style="{StaticResource FieldLabel}"/>
+                <TextBlock x:Name="VoiceAssignmentsHint" Text="{local:Ui NoSpeechVoiceAssignments}"
+                           Foreground="{DynamicResource FluentSecondary}" TextWrapping="Wrap"/>
+                <ListBox x:Name="VoiceAssignmentsList" SelectionChanged="VoiceAssignmentSelected" MinHeight="40" MaxHeight="180"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         AutomationProperties.Name="{local:Ui SpeechVoiceAssignments}">
+                  <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                      <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    </Style>
+                  </ListBox.ItemContainerStyle>
+                  <ListBox.ItemTemplate>
+                    <DataTemplate>
+                      <Grid>
+                        <Grid.ColumnDefinitions>
+                          <ColumnDefinition Width="*"/>
+                          <ColumnDefinition Width="2*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="{Binding Name}" ToolTip="{Binding Name}" TextTrimming="CharacterEllipsis" Margin="0,0,12,0"/>
+                        <TextBlock Grid.Column="1" Text="{Binding VoiceLabel}" ToolTip="{Binding VoiceLabel}" TextTrimming="CharacterEllipsis"/>
+                      </Grid>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+                <DockPanel x:Name="VoiceAssignmentEditor" Margin="0,8,0,0" Visibility="Collapsed">
+                  <WrapPanel DockPanel.Dock="Right" Margin="8,0,0,0">
+                    <Button x:Name="ApplyVoiceAssignment" Content="{local:Ui AssignSpeechVoice}" Click="ApplyVoiceAssignmentClicked" Margin="0,0,8,0"/>
+                    <Button Content="{local:Ui RemoveSpeechVoiceAssignment}" Click="RemoveVoiceAssignmentClicked"/>
+                  </WrapPanel>
+                  <ComboBox x:Name="VoiceAssignmentChoice" DisplayMemberPath="Name" SelectedValuePath="Id"
+                            SelectionChanged="VoiceAssignmentChoiceChanged" AutomationProperties.Name="{local:Ui NewAssignedSpeechVoice}"/>
+                </DockPanel>
+                <Button x:Name="ClearVoiceAssignments" Content="{local:Ui ClearSpeechVoiceAssignments}" Click="ClearVoiceAssignmentsClicked"
+                        Margin="0,8,0,0" HorizontalAlignment="Left"/>
+              </StackPanel>
+            </Border>
             <TextBlock Text="{Binding Text, ElementName=SpeechSettingsStatus}" Margin="0,8,0,0" TextWrapping="Wrap"/>
           </StackPanel>
         </ScrollViewer>

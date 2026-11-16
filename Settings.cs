@@ -13,6 +13,7 @@ internal sealed record ObsMessageStyle(bool Enabled = false, string Background =
     int Padding = 8, string BorderColor = "#BFA6FF", int BorderWidth = 0);
 
 internal sealed record SpeechPrefixRule(bool Enabled = true, string Prefix = "!", bool Inverted = true);
+internal sealed record SpeechVoiceAssignment(string Name, Guid VoiceId);
 
 internal enum ObsMessageEffect { Slide, Scale, Fade, Particles }
 [Flags]
@@ -58,6 +59,7 @@ internal sealed record Settings
     public string AudioOutputId { get; set; } = "";
     public bool RandomSpeechVoice { get; set; }
     public bool PinSpeechVoice { get; set; }
+    public Dictionary<string, SpeechVoiceAssignment> SpeechVoiceAssignments { get; set; } = new(StringComparer.Ordinal);
     public QueueBindings SpeechHotkeys { get; set; } = new();
     public Dictionary<string, QueueShortcut> PluginHotkeys { get; set; } = new(StringComparer.Ordinal);
     public int Volume { get; set; } = 100;
@@ -78,6 +80,11 @@ internal sealed record Settings
         var root = document.RootElement;
         var settings = root.Deserialize<Settings>() ?? new();
         settings.PluginHotkeys ??= new(StringComparer.Ordinal);
+        settings.SpeechVoiceAssignments ??= new(StringComparer.Ordinal);
+        var voiceIds = settings.SpeechVoices.Select(voice => voice.Id).ToHashSet();
+        foreach (var (userId, assignment) in settings.SpeechVoiceAssignments)
+            if (assignment is null || !voiceIds.Contains(assignment.VoiceId))
+                settings.SpeechVoiceAssignments.Remove(userId);
         if (root.ValueKind != JsonValueKind.Object || root.TryGetProperty(nameof(SpeechFilter), out _))
             return settings;
 

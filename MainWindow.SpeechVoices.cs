@@ -8,6 +8,7 @@ namespace TwitchChatAgent;
 public partial class MainWindow
 {
     private sealed record VoiceListItem(SpeechVoiceProfile Profile, string Label);
+    private sealed record VoiceAssignmentItem(string UserId, string Name, Guid VoiceId, string VoiceLabel);
 
     private PluginSpeech? EdgeProvider => plugins?.Providers.GetValueOrDefault(SpeechVoiceProfile.EdgeProviderId);
     private bool IsVoiceAvailable(SpeechVoiceProfile profile) => speech.IsVoiceAvailable(profile);
@@ -48,20 +49,88 @@ public partial class MainWindow
             settings.PrimarySpeechVoiceId = voices.FirstOrDefault()?.Id;
 
         var items = voices.Select(voice => new VoiceListItem(voice, !IsVoiceAvailable(voice)
-            ? string.Format(P("{0} · Провайдер недоступен", "{0} · Provider unavailable"), voice.Name)
+            ? UnavailableVoiceLabel(voice)
             : voice.Id == settings.PrimarySpeechVoiceId ? Ui.F("{0} · Основной", voice.Name) : voice.Name)).ToArray();
         VoiceProfilesList.ItemsSource = items;
         VoiceProfilesList.SelectedItem = items.FirstOrDefault(item => item.Profile.Id == selected);
         UpdateVoiceProfileButtons();
         UpdateMissingSpeechVoiceWarning();
         VoiceProfilesHint.Text = Ui.T("Добавьте голос, чтобы начать озвучивание.");
+        VoiceAssignmentChoice.ItemsSource = voices.Where(IsVoiceAvailable).ToArray();
+        RefreshVoiceAssignments();
     }
+
+    private static string UnavailableVoiceLabel(SpeechVoiceProfile voice) =>
+        string.Format(P("{0} · Провайдер недоступен", "{0} · Provider unavailable"), voice.Name);
 
     private void UpdateVoiceSelectionOptions()
     {
         var random = RandomSpeechVoice.IsChecked == true;
         PinSpeechVoice.Visibility = random ? Visibility.Visible : Visibility.Collapsed;
-        ResetPinnedVoices.Visibility = random && PinSpeechVoice.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+        VoiceAssignmentsPanel.Visibility = random && PinSpeechVoice.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void RefreshVoiceAssignments()
+    {
+        var previous = VoiceAssignmentsList.SelectedItem as VoiceAssignmentItem;
+        var pendingVoiceId = VoiceAssignmentChoice.SelectedValue as Guid?;
+        var labels = settings.SpeechVoices.ToDictionary(voice => voice.Id,
+            voice => IsVoiceAvailable(voice) ? voice.Name : UnavailableVoiceLabel(voice));
+        var items = settings.SpeechVoiceAssignments
+            .OrderBy(pair => pair.Value.Name, StringComparer.CurrentCultureIgnoreCase)
+            .Select(pair => new VoiceAssignmentItem(pair.Key, pair.Value.Name, pair.Value.VoiceId, labels[pair.Value.VoiceId]))
+            .ToArray();
+        VoiceAssignmentsList.ItemsSource = items;
+        var selected = items.FirstOrDefault(item => item.UserId == previous?.UserId);
+        VoiceAssignmentsList.SelectedItem = selected;
+        if (selected is not null && selected.VoiceId == previous?.VoiceId && pendingVoiceId is not null)
+            VoiceAssignmentChoice.SelectedValue = pendingVoiceId;
+        VoiceAssignmentsList.Visibility = items.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        VoiceAssignmentsHint.Visibility = items.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ClearVoiceAssignments.IsEnabled = items.Length > 0;
+    }
+
+    private void VoiceAssignmentSelected(object sender, SelectionChangedEventArgs e)
+    {
+        var selected = VoiceAssignmentsList.SelectedItem as VoiceAssignmentItem;
+        VoiceAssignmentEditor.Visibility = selected is null ? Visibility.Collapsed : Visibility.Visible;
+        VoiceAssignmentChoice.SelectedValue = selected?.VoiceId;
+        UpdateApplyVoiceAssignment();
+    }
+
+    private void VoiceAssignmentChoiceChanged(object sender, SelectionChangedEventArgs e) => UpdateApplyVoiceAssignment();
+
+    private void UpdateApplyVoiceAssignment() =>
+        ApplyVoiceAssignment.IsEnabled = VoiceAssignmentsList.SelectedItem is VoiceAssignmentItem selected &&
+            VoiceAssignmentChoice.SelectedValue is Guid id && id != selected.VoiceId;
+
+    private void ApplyVoiceAssignmentClicked(object sender, RoutedEventArgs e)
+    {
+        if (VoiceAssignmentsList.SelectedItem is VoiceAssignmentItem selected &&
+            VoiceAssignmentChoice.SelectedValue is Guid id && id != selected.VoiceId)
+        {
+            settings.SpeechVoiceAssignments[selected.UserId] = new(selected.Name, id);
+            SaveVoiceAssignments();
+        }
+    }
+
+    private void RemoveVoiceAssignmentClicked(object sender, RoutedEventArgs e)
+    {
+        if (VoiceAssignmentsList.SelectedItem is VoiceAssignmentItem selected && settings.SpeechVoiceAssignments.Remove(selected.UserId))
+            SaveVoiceAssignments();
+    }
+
+    private void ClearVoiceAssignmentsClicked(object sender, RoutedEventArgs e)
+    {
+        settings.SpeechVoiceAssignments.Clear();
+        SaveVoiceAssignments();
+    }
+
+    private void SaveVoiceAssignments()
+    {
+        RefreshVoiceAssignments();
+        SpeechSettingsStatus.Text = "";
+        SaveSettings(SpeechSettingsStatus);
     }
 
     private void VoiceProfileSelected(object sender, SelectionChangedEventArgs e) => UpdateVoiceProfileButtons();
@@ -117,6 +186,9 @@ public partial class MainWindow
     {
         if (VoiceProfilesList.SelectedItem is not VoiceListItem item) return;
         settings.SpeechVoices = settings.SpeechVoices.Where(voice => voice.Id != item.Profile.Id).ToArray();
+        foreach (var (userId, assignment) in settings.SpeechVoiceAssignments)
+            if (assignment.VoiceId == item.Profile.Id)
+                settings.SpeechVoiceAssignments.Remove(userId);
         RefreshVoiceProfiles();
         UpdateSpeechSettings();
     }

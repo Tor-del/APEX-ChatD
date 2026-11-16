@@ -28,7 +28,9 @@ Use **Refresh Twitch permissions** if you previously connected without moderatio
 
 ## Speech and controls
 
-Add voice profiles using Windows voices, an OpenAI-compatible speech endpoint, or a TTS plugin. The installer with Edge TTS offers it as an optional plugin, selected by default. The [Edge TTS releases](https://github.com/Tor-del/APEX-ChatD-Plugin-EdgeTTS/releases/latest) also provide a separately installable ZIP. Double-click a profile or select **Edit** to open its settings. Select **Make primary** to use that profile by default. Random selection uses the profiles in the list, and assignments can be kept for each Twitch user until the session ends or you reset them.
+Add voice profiles using Windows voices, an OpenAI-compatible speech endpoint, or a TTS plugin. The installer with Edge TTS offers it as an optional plugin, selected by default. The [Edge TTS releases](https://github.com/Tor-del/APEX-ChatD-Plugin-EdgeTTS/releases/latest) also provide a separately installable ZIP. Double-click a profile or select **Edit** to open its settings. Select **Make primary** to use that profile by default. Random selection uses the available profiles.
+
+In **Voices**, enable random selection and **Assign a voice to each user** to see the list of Twitch users and their saved voices. Select a user, choose a profile, and click **Assign** to change their voice. Use **Remove assignment** for one user or **Clear list** for everyone. A new voice is chosen at random when the user's next message enters the speech queue. Assignments survive app restarts.
 
 Set speed, an audio preset, pitch, and formants on each profile. Volume and the output device apply to all profiles. URLs are excluded from spoken messages, and messages starting with `!` are skipped by default. **Controls** lets you assign global shortcuts for pause or resume, skip, and clear queue. Use **Test message** on the Twitch tab to exercise the chat and speech pipeline without connecting a channel.
 

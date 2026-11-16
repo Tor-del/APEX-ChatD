@@ -7,12 +7,11 @@ using Windows.Media.SpeechSynthesis;
 
 namespace TwitchChatAgent;
 
-internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Action<string> status)
+internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Action<string> status, Action voiceAssignmentsChanged)
 {
     private static readonly TimeSpan RetryLimit = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan RetryDelay = TimeSpan.FromSeconds(5);
     private readonly Queue<ChatMessage> pending = new();
-    private readonly Dictionary<string, Guid> pinnedVoices = new(StringComparer.OrdinalIgnoreCase);
     private static readonly HttpClient compatibleHttp = new(new SocketsHttpHandler
     {
         AllowAutoRedirect = false,
@@ -54,23 +53,38 @@ internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Acti
         }
     }
 
-    public void ResetPinnedVoices() => pinnedVoices.Clear();
-
     private SpeechVoiceProfile ChooseVoice(ChatMessage message)
     {
         var voices = options.SpeechVoices;
         if (!options.RandomSpeechVoice)
             return Array.Find(voices, voice => voice.Id == options.PrimarySpeechVoiceId) ?? voices[0];
 
-        var key = message.UserId is { Length: > 0 } id ? "id:" + id : "name:" + message.Name;
-        if (options.PinSpeechVoice && pinnedVoices.TryGetValue(key, out var pinnedId) &&
-            Array.Find(voices, voice => voice.Id == pinnedId) is { } pinned)
+        if (options.PinSpeechVoice && message.UserId is { Length: > 0 } userId &&
+            options.SpeechVoiceAssignments.TryGetValue(userId, out var assignment) &&
+            Array.Find(voices, voice => voice.Id == assignment.VoiceId) is { } pinned)
             return pinned;
 
-        var selected = voices[Random.Shared.Next(voices.Length)];
-        if (options.PinSpeechVoice)
-            pinnedVoices[key] = selected.Id;
-        return selected;
+        return voices[Random.Shared.Next(voices.Length)];
+    }
+
+    private void AssignVoiceToUser(ChatMessage message)
+    {
+        if (!options.RandomSpeechVoice || !options.PinSpeechVoice || message.UserId is not { Length: > 0 } userId)
+            return;
+
+        var assignments = options.SpeechVoiceAssignments;
+        if (assignments.TryGetValue(userId, out var existing))
+        {
+            if (existing.Name == message.Name)
+                return;
+            assignments[userId] = existing with { Name = message.Name };
+        }
+        else
+        {
+            var voices = options.SpeechVoices;
+            assignments[userId] = new(message.Name, voices[Random.Shared.Next(voices.Length)].Id);
+        }
+        voiceAssignmentsChanged();
     }
 
     public void Configure(Settings settings)
@@ -104,8 +118,7 @@ internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Acti
         var text = SpeechTextFilter.Prepare(message, options.SkipSpeechEmotes);
         if (string.IsNullOrWhiteSpace(text))
             return;
-        if (options.RandomSpeechVoice && options.PinSpeechVoice)
-            ChooseVoice(message);
+        AssignVoiceToUser(message);
         pending.Enqueue(text == message.Text ? message : message with { Text = text });
         Report();
         Start();

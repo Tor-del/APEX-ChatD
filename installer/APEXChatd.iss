@@ -41,12 +41,12 @@ Name: "en"; MessagesFile: "compiler:Default.isl"
 Name: "ru"; MessagesFile: "compiler:Languages\Russian.isl"
 
 [CustomMessages]
-en.AutoStart=Start APEX Chatd minimized when I sign in to Windows
-ru.AutoStart=Запускать APEX Chatd свёрнутым при входе в Windows
-en.EdgeTts=Install the Edge TTS plugin
-ru.EdgeTts=Установить плагин Edge TTS
-en.Launch=Launch APEX Chatd
-ru.Launch=Запустить APEX Chatd
+en.AutoStart= Start APEX Chatd minimized when I sign in to Windows
+ru.AutoStart= Запускать APEX Chatd свёрнутым при входе в Windows
+en.EdgeTts= Install the Edge TTS plugin
+ru.EdgeTts= Установить плагин Edge TTS
+en.Launch= Launch APEX Chatd
+ru.Launch= Запустить APEX Chatd
 en.UpdateWaitFailed=APEX Chatd is still closing. Close it and run the installer again.
 ru.UpdateWaitFailed=APEX Chatd ещё завершает работу. Закройте приложение и запустите установщик ещё раз.
 
