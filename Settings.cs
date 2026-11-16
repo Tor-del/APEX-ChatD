@@ -54,10 +54,8 @@ internal sealed record Settings
     public SpeechPrefixRule SpeechFilter { get; set; } = new();
     public bool SkipSpeechEmotes { get; set; }
     public SpeechVoiceProfile[] SpeechVoices { get; set; } = [];
-    public Guid? PrimarySpeechVoiceId { get; set; }
     public bool RetrySpeech { get; set; }
     public string AudioOutputId { get; set; } = "";
-    public bool RandomSpeechVoice { get; set; }
     public bool PinSpeechVoice { get; set; }
     public Dictionary<string, SpeechVoiceAssignment> SpeechVoiceAssignments { get; set; } = new(StringComparer.Ordinal);
     public QueueBindings SpeechHotkeys { get; set; } = new();
@@ -81,6 +79,7 @@ internal sealed record Settings
         var settings = root.Deserialize<Settings>() ?? new();
         settings.PluginHotkeys ??= new(StringComparer.Ordinal);
         settings.SpeechVoiceAssignments ??= new(StringComparer.Ordinal);
+        MigrateSpeechVoiceSelection(root, settings);
         var voiceIds = settings.SpeechVoices.Select(voice => voice.Id).ToHashSet();
         foreach (var (userId, assignment) in settings.SpeechVoiceAssignments)
             if (assignment is null || !voiceIds.Contains(assignment.VoiceId))
@@ -95,6 +94,21 @@ internal sealed record Settings
         settings.SpeechFilter = hadPrefixFilter ? new(true, prefix, false)
             : skippedCommands ? new() : new(false, prefix, false);
         return settings;
+    }
+
+    private static void MigrateSpeechVoiceSelection(JsonElement root, Settings settings)
+    {
+        if (root.ValueKind != JsonValueKind.Object ||
+            !root.TryGetProperty("RandomSpeechVoice", out var random) || random.ValueKind != JsonValueKind.False)
+            return;
+
+        var voices = settings.SpeechVoices;
+        var selected = root.TryGetProperty("PrimarySpeechVoiceId", out var primary) &&
+            primary.ValueKind == JsonValueKind.String && primary.TryGetGuid(out var id)
+            ? Array.Find(voices, voice => voice.Id == id) ?? voices.FirstOrDefault()
+            : voices.FirstOrDefault();
+        settings.SpeechVoices = voices.Select(voice => voice with { Enabled = voice.Id == selected?.Id }).ToArray();
+        settings.PinSpeechVoice = false;
     }
 
     public void Save() => Write("settings.json", JsonSerializer.SerializeToUtf8Bytes(this));

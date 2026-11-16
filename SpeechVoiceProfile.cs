@@ -10,6 +10,7 @@ internal sealed record SpeechVoiceProfile
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public string Name { get; init; } = "";
+    public bool Enabled { get; init; } = true;
     public SpeechProvider Provider { get; init; }
     public string? PluginProviderId { get; init; }
     public string ProviderOptions { get; init; } = "";

@@ -31,6 +31,7 @@ internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Acti
     public bool Paused => paused;
 
     public bool IsVoiceAvailable(SpeechVoiceProfile profile) => profile.ExtensionProviderId is not { } id || findProvider(id) is not null;
+    public bool CanUseVoice(SpeechVoiceProfile profile) => profile.Enabled && IsVoiceAvailable(profile);
 
     public async Task PreviewAsync(string text, SpeechVoiceProfile profile, CancellationToken ct)
     {
@@ -56,9 +57,6 @@ internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Acti
     private SpeechVoiceProfile ChooseVoice(ChatMessage message)
     {
         var voices = options.SpeechVoices;
-        if (!options.RandomSpeechVoice)
-            return Array.Find(voices, voice => voice.Id == options.PrimarySpeechVoiceId) ?? voices[0];
-
         if (options.PinSpeechVoice && message.UserId is { Length: > 0 } userId &&
             options.SpeechVoiceAssignments.TryGetValue(userId, out var assignment) &&
             Array.Find(voices, voice => voice.Id == assignment.VoiceId) is { } pinned)
@@ -69,7 +67,7 @@ internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Acti
 
     private void AssignVoiceToUser(ChatMessage message)
     {
-        if (!options.RandomSpeechVoice || !options.PinSpeechVoice || message.UserId is not { Length: > 0 } userId)
+        if (!options.PinSpeechVoice || message.UserId is not { Length: > 0 } userId)
             return;
 
         var assignments = options.SpeechVoiceAssignments;
@@ -89,7 +87,7 @@ internal sealed class SpeechQueue(Func<string, PluginSpeech?> findProvider, Acti
 
     public void Configure(Settings settings)
     {
-        options = settings with { SpeechVoices = settings.SpeechVoices.Where(IsVoiceAvailable).ToArray() };
+        options = settings with { SpeechVoices = settings.SpeechVoices.Where(CanUseVoice).ToArray() };
         lastError = null;
         enabled = settings.Speech && options.SpeechVoices.Length > 0;
         if (!enabled)

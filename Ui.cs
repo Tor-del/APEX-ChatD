@@ -104,7 +104,6 @@ internal static class Ui
         ["TtsFormat"] = ("Формат ответа сервера", "Server audio format"),
         ["AudioOutputDevice"] = ("Устройство вывода", "Audio output device"),
         ["RefreshAudioDevices"] = ("Обновить", "Refresh"),
-        ["RandomSpeechVoice"] = ("Выбирать случайный голос для каждого сообщения", "Choose a random voice for each message"),
         ["FilterSpeechByPrefix"] = ("Озвучивать только сообщения", "Only read messages"),
         ["SpeechPrefix"] = ("Начало сообщения", "Message prefix"),
         ["InvertSpeechPrefix"] = ("Не", "Not"),
@@ -117,9 +116,8 @@ internal static class Ui
         ["OpenVoices"] = ("Открыть голоса", "Open voices"),
         ["AddSpeechVoice"] = ("Добавить голос", "Add voice"),
         ["EditSpeechVoice"] = ("Изменить", "Edit"),
-        ["MakePrimarySpeechVoice"] = ("Сделать основным", "Make primary"),
         ["SpeechVoiceName"] = ("Название профиля (необязательно)", "Profile name (optional)"),
-        ["MissingSpeechVoices"] = ("Озвучивание включено, но список голосов пуст. Добавьте голос, чтобы слышать новые сообщения.", "Speech is on, but the voice list is empty. Add a voice to hear new messages."),
+        ["MissingSpeechVoices"] = ("Озвучивание включено, но нет включённых голосов с доступным провайдером. Включите существующий голос или добавьте новый на вкладке «Голоса».", "Speech is on, but no enabled voice has an available provider. Enable an existing voice or add a new one on the Voices tab."),
         ["AddRandomEdgeVoice"] = ("Добавить случайный голос Edge TTS", "Add a random Edge TTS voice"),
         ["SpeechSampleText"] = ("Текст для прослушивания", "Sample text"),
         ["SpeechSamplePhrase"] = ("Привет! Так будет звучать этот голос в чате.", "Hello! This is how this voice will sound in chat."),
@@ -182,7 +180,6 @@ internal static class Ui
 
     private static readonly Dictionary<string, string> English = new()
     {
-        ["{0} · Основной"] = "{0} · Primary",
         ["Добавьте голос, чтобы начать озвучивание."] = "Add a voice to start reading messages.",
         ["Добавить голос"] = "Add voice",
         ["Изменить голос"] = "Edit voice",

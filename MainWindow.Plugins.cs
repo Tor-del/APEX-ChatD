@@ -35,7 +35,6 @@ public partial class MainWindow
                 speech.Configure(settings);
                 RefreshVoiceProfiles();
                 RefreshPluginShortcuts();
-                AddRandomEdgeVoiceButton.Visibility = EdgeProvider is null ? Visibility.Collapsed : Visibility.Visible;
             }
         }
         catch (Exception ex)

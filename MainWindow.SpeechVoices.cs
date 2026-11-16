@@ -1,22 +1,29 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using PluginSpeech = ApexChatd.Plugins.SpeechProvider;
 
 namespace TwitchChatAgent;
 
 public partial class MainWindow
 {
-    private sealed record VoiceListItem(SpeechVoiceProfile Profile, string Label);
+    private sealed class VoiceListItem(SpeechVoiceProfile profile, string label)
+    {
+        public SpeechVoiceProfile Profile { get; set; } = profile;
+        public string Label { get; } = label;
+    }
     private sealed record VoiceAssignmentItem(string UserId, string Name, Guid VoiceId, string VoiceLabel);
 
     private PluginSpeech? EdgeProvider => plugins?.Providers.GetValueOrDefault(SpeechVoiceProfile.EdgeProviderId);
     private bool IsVoiceAvailable(SpeechVoiceProfile profile) => speech.IsVoiceAvailable(profile);
-    private bool HasMissingSpeechVoice => settings.Speech && !settings.SpeechVoices.Any(IsVoiceAvailable);
+    private bool HasMissingSpeechVoice => settings.Speech && !settings.SpeechVoices.Any(speech.CanUseVoice);
 
     private void UpdateMissingSpeechVoiceWarning()
     {
         MissingSpeechVoiceWarning.Visibility = HasMissingSpeechVoice ? Visibility.Visible : Visibility.Collapsed;
+        AddRandomEdgeVoiceButton.Visibility = EdgeProvider is not null && !settings.SpeechVoices.Any(IsVoiceAvailable)
+            ? Visibility.Visible : Visibility.Collapsed;
         VoiceProfilesHint.Visibility = settings.SpeechVoices.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
@@ -37,7 +44,6 @@ public partial class MainWindow
             Name = voice.Name, Provider = SpeechProvider.Edge, PluginProviderId = SpeechVoiceProfile.EdgeProviderId, Voice = voice.Id, Language = voice.Language
         };
         settings.SpeechVoices = [.. settings.SpeechVoices, profile];
-        settings.PrimarySpeechVoiceId = profile.Id;
         RefreshVoiceProfiles(profile.Id);
         UpdateSpeechSettings();
     }
@@ -45,37 +51,35 @@ public partial class MainWindow
     private void RefreshVoiceProfiles(Guid? selected = null)
     {
         var voices = settings.SpeechVoices;
-        if (!voices.Any(voice => voice.Id == settings.PrimarySpeechVoiceId))
-            settings.PrimarySpeechVoiceId = voices.FirstOrDefault()?.Id;
-
-        var items = voices.Select(voice => new VoiceListItem(voice, !IsVoiceAvailable(voice)
-            ? UnavailableVoiceLabel(voice)
-            : voice.Id == settings.PrimarySpeechVoiceId ? Ui.F("{0} · Основной", voice.Name) : voice.Name)).ToArray();
+        var items = voices.Select(voice => new VoiceListItem(voice, GetVoiceLabel(voice))).ToArray();
         VoiceProfilesList.ItemsSource = items;
         VoiceProfilesList.SelectedItem = items.FirstOrDefault(item => item.Profile.Id == selected);
         UpdateVoiceProfileButtons();
         UpdateMissingSpeechVoiceWarning();
         VoiceProfilesHint.Text = Ui.T("Добавьте голос, чтобы начать озвучивание.");
-        VoiceAssignmentChoice.ItemsSource = voices.Where(IsVoiceAvailable).ToArray();
+        RefreshVoiceAssignmentChoices();
+    }
+
+    private string GetVoiceLabel(SpeechVoiceProfile voice) =>
+        !IsVoiceAvailable(voice) ? string.Format(P("{0} · Провайдер недоступен", "{0} · Provider unavailable"), voice.Name)
+            : voice.Name;
+
+    private void RefreshVoiceAssignmentChoices()
+    {
+        VoiceAssignmentChoice.ItemsSource = settings.SpeechVoices.Where(speech.CanUseVoice).ToArray();
         RefreshVoiceAssignments();
     }
 
-    private static string UnavailableVoiceLabel(SpeechVoiceProfile voice) =>
-        string.Format(P("{0} · Провайдер недоступен", "{0} · Provider unavailable"), voice.Name);
-
-    private void UpdateVoiceSelectionOptions()
-    {
-        var random = RandomSpeechVoice.IsChecked == true;
-        PinSpeechVoice.Visibility = random ? Visibility.Visible : Visibility.Collapsed;
-        VoiceAssignmentsPanel.Visibility = random && PinSpeechVoice.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
-    }
+    private void UpdateVoiceSelectionOptions() =>
+        VoiceAssignmentsPanel.Visibility = PinSpeechVoice.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
 
     private void RefreshVoiceAssignments()
     {
         var previous = VoiceAssignmentsList.SelectedItem as VoiceAssignmentItem;
         var pendingVoiceId = VoiceAssignmentChoice.SelectedValue as Guid?;
         var labels = settings.SpeechVoices.ToDictionary(voice => voice.Id,
-            voice => IsVoiceAvailable(voice) ? voice.Name : UnavailableVoiceLabel(voice));
+            voice => voice.Enabled ? GetVoiceLabel(voice)
+                : string.Format(P("{0} · Выключен", "{0} · Disabled"), GetVoiceLabel(voice)));
         var items = settings.SpeechVoiceAssignments
             .OrderBy(pair => pair.Value.Name, StringComparer.CurrentCultureIgnoreCase)
             .Select(pair => new VoiceAssignmentItem(pair.Key, pair.Value.Name, pair.Value.VoiceId, labels[pair.Value.VoiceId]))
@@ -139,7 +143,6 @@ public partial class MainWindow
     {
         var selected = VoiceProfilesList.SelectedItem as VoiceListItem;
         EditVoiceProfileButton.IsEnabled = RemoveVoiceProfile.IsEnabled = selected is not null;
-        MakePrimaryVoiceButton.IsEnabled = selected is not null && IsVoiceAvailable(selected.Profile) && selected.Profile.Id != settings.PrimarySpeechVoiceId;
     }
 
     private void VoiceProfileDoubleClicked(object sender, MouseButtonEventArgs e)
@@ -147,6 +150,11 @@ public partial class MainWindow
         if (e.ChangedButton != MouseButton.Left || e.OriginalSource is not DependencyObject source ||
             ItemsControl.ContainerFromElement(VoiceProfilesList, source) is not ListBoxItem { DataContext: VoiceListItem item })
             return;
+        for (var element = source; element is Visual; element = VisualTreeHelper.GetParent(element))
+        {
+            if (element is CheckBox) return;
+            if (element is ListBoxItem) break;
+        }
         e.Handled = true;
         OpenVoiceEditor(item.Profile);
     }
@@ -159,12 +167,13 @@ public partial class MainWindow
             OpenVoiceEditor(item.Profile);
     }
 
-    private void MakePrimaryVoiceClicked(object sender, RoutedEventArgs e)
+    private void VoiceProfileToggled(object sender, RoutedEventArgs e)
     {
-        if (VoiceProfilesList.SelectedItem is not VoiceListItem item || item.Profile.Id == settings.PrimarySpeechVoiceId)
+        if (sender is not CheckBox { DataContext: VoiceListItem item } checkBox)
             return;
-        settings.PrimarySpeechVoiceId = item.Profile.Id;
-        RefreshVoiceProfiles(item.Profile.Id);
+        item.Profile = item.Profile with { Enabled = checkBox.IsChecked == true };
+        settings.SpeechVoices = settings.SpeechVoices.Select(voice => voice.Id == item.Profile.Id ? item.Profile : voice).ToArray();
+        RefreshVoiceAssignmentChoices();
         UpdateSpeechSettings();
     }
 

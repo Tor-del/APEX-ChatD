@@ -300,23 +300,30 @@
       <TabItem x:Name="VoicesTab" Header="{local:Ui Voices}" Tag="&#xE720;">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <StackPanel Margin="28,24">
-            <ListBox x:Name="VoiceProfilesList" DisplayMemberPath="Label" MinHeight="40" MaxHeight="180"
+            <ListBox x:Name="VoiceProfilesList" MinHeight="40" MaxHeight="180"
                      SelectionChanged="VoiceProfileSelected" MouseDoubleClick="VoiceProfileDoubleClicked"
-                     AutomationProperties.Name="{local:Ui AvailableSpeechVoices}"/>
+                     AutomationProperties.Name="{local:Ui AvailableSpeechVoices}">
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <StackPanel Orientation="Horizontal">
+                    <CheckBox IsChecked="{Binding Profile.Enabled, Mode=OneWay}" Click="VoiceProfileToggled"
+                              AutomationProperties.Name="{Binding Label}" Width="28"/>
+                    <TextBlock Text="{Binding Label}" VerticalAlignment="Center"/>
+                  </StackPanel>
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
             <TextBlock x:Name="VoiceProfilesHint" Margin="0,6,0,0" TextWrapping="Wrap"/>
             <WrapPanel Margin="0,10,0,0">
               <Button Content="{local:Ui AddSpeechVoice}" Click="AddVoiceProfileClicked" Margin="0,0,8,4"/>
               <Button x:Name="EditVoiceProfileButton" Content="{local:Ui EditSpeechVoice}" Click="EditVoiceProfileClicked"
                       IsEnabled="False" Margin="0,0,8,4"/>
-              <Button x:Name="MakePrimaryVoiceButton" Content="{local:Ui MakePrimarySpeechVoice}" Click="MakePrimaryVoiceClicked"
-                      IsEnabled="False" Margin="0,0,8,4"/>
               <Button x:Name="RemoveVoiceProfile" Content="{local:Ui Delete}" Click="RemoveVoiceProfileClicked"
                       IsEnabled="False" Margin="0,0,0,4"/>
             </WrapPanel>
-            <CheckBox x:Name="RandomSpeechVoice" Content="{local:Ui RandomSpeechVoice}" Margin="0,16,0,0"/>
-            <CheckBox x:Name="PinSpeechVoice" Content="{local:Ui PinSpeechVoice}" Margin="16,6,0,0" Visibility="Collapsed"/>
+            <CheckBox x:Name="PinSpeechVoice" Content="{local:Ui PinSpeechVoice}" Margin="0,16,0,0"/>
             <Border x:Name="VoiceAssignmentsPanel" Style="{StaticResource SettingsSection}"
-                    Margin="16,10,0,0" Visibility="Collapsed">
+                    Margin="0,10,0,0" Visibility="Collapsed">
               <StackPanel>
                 <TextBlock Text="{local:Ui SpeechVoiceAssignments}" Style="{StaticResource FieldLabel}"/>
                 <TextBlock x:Name="VoiceAssignmentsHint" Text="{local:Ui NoSpeechVoiceAssignments}"

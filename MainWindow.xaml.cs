@@ -86,7 +86,7 @@ public partial class MainWindow : Window
         speech = new SpeechQueue(id => plugins?.Providers.GetValueOrDefault(id), value =>
         {
             SpeechStatus.Text = value;
-            PauseQueueButton.IsEnabled = settings.Speech && settings.SpeechVoices.Any(IsVoiceAvailable);
+            PauseQueueButton.IsEnabled = settings.Speech && settings.SpeechVoices.Any(speech!.CanUseVoice);
             PauseQueueIcon.Text = speech!.Paused ? "\uE768" : "\uE769";
             PauseQueueLabel.Text = speech.Paused ? Ui.T("Продолжить") : Ui.T("Пауза");
             trayQueue.Text = Ui.F("В очереди: {0}", speech!.Count) + (speech.Paused ? Ui.T(" · Пауза") : "");
@@ -137,7 +137,6 @@ public partial class MainWindow : Window
         InvertSpeechPrefix.IsChecked = settings.SpeechFilter.Inverted;
         SkipSpeechEmotes.IsChecked = settings.SkipSpeechEmotes;
         RetrySpeech.IsChecked = settings.RetrySpeech;
-        RandomSpeechVoice.IsChecked = settings.RandomSpeechVoice;
         PinSpeechVoice.IsChecked = settings.PinSpeechVoice;
         Volume.Value = settings.Volume;
         LoadAudioDevices();
@@ -174,11 +173,6 @@ public partial class MainWindow : Window
         SpeechPrefix.TextChanged += (_, _) => UpdateSpeechSettings();
         OnToggle(SkipSpeechEmotes, UpdateSpeechSettings);
         OnToggle(RetrySpeech, UpdateSpeechSettings);
-        OnToggle(RandomSpeechVoice, () =>
-        {
-            UpdateVoiceSelectionOptions();
-            UpdateSpeechSettings();
-        });
         OnToggle(PinSpeechVoice, () =>
         {
             UpdateVoiceSelectionOptions();
@@ -760,7 +754,6 @@ public partial class MainWindow : Window
             InvertSpeechPrefix.IsChecked == true);
         settings.SkipSpeechEmotes = SkipSpeechEmotes.IsChecked == true;
         settings.RetrySpeech = RetrySpeech.IsChecked == true;
-        settings.RandomSpeechVoice = RandomSpeechVoice.IsChecked == true;
         settings.PinSpeechVoice = PinSpeechVoice.IsChecked == true;
         settings.AudioOutputId = AudioDeviceChoice.SelectedValue as string ?? settings.AudioOutputId;
         settings.Volume = (int)Volume.Value;
